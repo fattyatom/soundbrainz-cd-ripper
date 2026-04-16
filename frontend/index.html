@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SoundBrainz CD Ripper</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <header>
+        <h1>SoundBrainz CD Ripper</h1>
+        <nav>
+            <button class="nav-btn active" data-view="drives">Drives</button>
+            <button class="nav-btn" data-view="rip">Rip</button>
+            <button class="nav-btn" data-view="settings">Settings</button>
+        </nav>
+    </header>
+
+    <main>
+        <section id="view-drives" class="view active">
+            <div id="drives-container">
+                <p class="loading">Detecting drives...</p>
+            </div>
+        </section>
+
+        <section id="view-rip" class="view">
+            <div id="rip-container">
+                <p>Select a drive first, then look up the disc to begin ripping.</p>
+            </div>
+        </section>
+
+        <section id="view-settings" class="view">
+            <div id="settings-container">
+                <p>Settings will appear here.</p>
+            </div>
+        </section>
+    </main>
+
+    <div id="toast-container"></div>
+
+    <script src="/js/api.js"></script>
+    <script src="/js/drives.js"></script>
+    <script src="/js/rip.js"></script>
+    <script src="/js/metadata.js"></script>
+    <script src="/js/settings.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>

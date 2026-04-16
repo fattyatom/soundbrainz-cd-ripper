@@ -1,0 +1,91 @@
+/**
+ * MusicBrainz metadata results view.
+ * Renders matching releases with cover art and track listings.
+ */
+const MetadataView = {
+    render(container, data, drive) {
+        const releases = data.releases || [];
+        if (releases.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <h3>No matches found</h3>
+                    <p>MusicBrainz couldn't identify this disc.</p>
+                </div>
+                <div class="action-bar">
+                    <button class="btn" onclick="RipView.startRipWithoutMetadata('${drive.device}')">Rip Without Metadata</button>
+                    <button class="btn btn-secondary" onclick="App.switchView('drives')">Back</button>
+                </div>`;
+            return;
+        }
+
+        const releasesHTML = releases.map((rel, i) => `
+            <div class="release-card ${i === 0 ? 'selected' : ''}" data-index="${i}" onclick="MetadataView.selectRelease(${i})">
+                <div class="release-header">
+                    ${rel.cover_art_url
+                        ? `<img class="cover-art" src="${rel.cover_art_url}" alt="Cover" onerror="this.style.display='none'">`
+                        : '<div class="cover-art-placeholder"></div>'}
+                    <div class="release-info">
+                        <h3>${this._esc(rel.album)}</h3>
+                        <p>${this._esc(rel.artist)}</p>
+                        <p class="release-meta">
+                            ${rel.year ? this._esc(String(rel.year)) : 'Unknown year'}
+                            ${rel.country ? ' · ' + this._esc(rel.country) : ''}
+                            ${rel.label ? ' · ' + this._esc(rel.label) : ''}
+                            ${rel.language ? ' · ' + this._esc(rel.language) : ''}
+                        </p>
+                    </div>
+                </div>
+                <table class="track-list">
+                    <thead><tr><th>#</th><th>Title</th><th>Duration</th></tr></thead>
+                    <tbody>
+                        ${(rel.tracks || []).map(t => `
+                            <tr>
+                                <td>${t.number}</td>
+                                <td>${this._esc(t.title)}</td>
+                                <td>${this._formatDuration(t.duration_ms)}</td>
+                            </tr>
+                        `).join("")}
+                    </tbody>
+                </table>
+            </div>
+        `).join("");
+
+        container.innerHTML = `
+            <h2 style="margin-bottom: 1rem;">Select a Release</h2>
+            <div class="releases">${releasesHTML}</div>
+            <div class="action-bar">
+                <button class="btn" id="btn-rip" onclick="MetadataView.onRip()">Rip Selected</button>
+                <button class="btn btn-secondary" onclick="App.switchView('drives')">Back</button>
+            </div>`;
+
+        this._releases = releases;
+        this._drive = drive;
+        this._selectedIndex = 0;
+    },
+
+    selectRelease(index) {
+        this._selectedIndex = index;
+        document.querySelectorAll(".release-card").forEach((el, i) => {
+            el.classList.toggle("selected", i === index);
+        });
+    },
+
+    onRip() {
+        const release = this._releases[this._selectedIndex];
+        RipView.startRip(this._drive.device, release);
+    },
+
+    _esc(str) {
+        const div = document.createElement("div");
+        div.textContent = str || "";
+        return div.innerHTML;
+    },
+
+    _formatDuration(ms) {
+        if (!ms) return "--:--";
+        const totalSec = Math.round(ms / 1000);
+        const min = Math.floor(totalSec / 60);
+        const sec = totalSec % 60;
+        return `${min}:${sec.toString().padStart(2, "0")}`;
+    },
+};
