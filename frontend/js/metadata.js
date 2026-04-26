@@ -92,11 +92,11 @@ const MetadataView = {
                     </div>
                 ` : ''}
                 <table class="track-list">
-                    <thead><tr><th><input type="checkbox" ${i === 0 ? 'checked' : ''} onchange="MetadataView.toggleAllTracks(this, ${i})"></th><th>#</th><th>Title</th><th>Duration</th></tr></thead>
+                    <thead><tr><th><input type="checkbox" ${i === 0 ? 'checked' : ''} onchange="MetadataView.toggleAllTracks(this, ${i})" onclick="event.stopPropagation()"></th><th>#</th><th>Title</th><th>Duration</th></tr></thead>
                     <tbody>
                         ${(rel.tracks || []).map(t => `
                             <tr>
-                                <td><input type="checkbox" class="track-checkbox" data-release-index="${i}" data-track-number="${t.number}" ${i === 0 ? 'checked' : ''}></td>
+                                <td><input type="checkbox" class="track-checkbox" data-release-index="${i}" data-track-number="${t.number}" ${i === 0 ? 'checked' : ''} onchange="MetadataView.onTrackCheckboxChange(this, ${i})" onclick="event.stopPropagation()"></td>
                                 <td>${t.number}</td>
                                 <td>${this._esc(t.title)}</td>
                                 <td>${this._formatDuration(t.duration_ms)}</td>
@@ -128,12 +128,7 @@ const MetadataView = {
         });
 
         // Update the "Select All" checkbox state for the newly selected release
-        const allCheckboxes = document.querySelectorAll(`.track-checkbox[data-release-index="${index}"]`);
-        const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
-        const selectAllCheckbox = document.querySelector(`.release-card[data-index="${index}"] thead input[type="checkbox"]`);
-        if (selectAllCheckbox) {
-            selectAllCheckbox.checked = allChecked && allCheckboxes.length > 0;
-        }
+        this.updateSelectAllCheckboxState(index);
     },
 
     onRip() {
@@ -182,6 +177,26 @@ const MetadataView = {
         checkboxes.forEach(cb => {
             cb.checked = checkbox.checked;
         });
+        // Clear indeterminate state when explicitly toggling
+        checkbox.indeterminate = false;
+    },
+
+    onTrackCheckboxChange(checkbox, releaseIndex) {
+        this.updateSelectAllCheckboxState(releaseIndex);
+    },
+
+    updateSelectAllCheckboxState(releaseIndex) {
+        const allCheckboxes = document.querySelectorAll(`.track-checkbox[data-release-index="${releaseIndex}"]`);
+        if (allCheckboxes.length === 0) return;
+
+        const allChecked = Array.from(allCheckboxes).every(cb => cb.checked);
+        const someChecked = Array.from(allCheckboxes).some(cb => cb.checked);
+
+        const selectAllCheckbox = document.querySelector(`.release-card[data-index="${releaseIndex}"] thead input[type="checkbox"]`);
+        if (selectAllCheckbox) {
+            selectAllCheckbox.checked = allChecked;
+            selectAllCheckbox.indeterminate = someChecked && !allChecked;
+        }
     },
 
     _esc(str) {
