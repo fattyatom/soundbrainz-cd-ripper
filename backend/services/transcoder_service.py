@@ -91,6 +91,10 @@ def _transcode_to_aiff(input_path: str, output_path: str, metadata: Optional[dic
         "-ac", "2",  # Stereo
     ]
 
+    # Add ID3v2 tags for AIFF (required for metadata)
+    cmd.extend(["-write_id3v2", "1"])  # Enable ID3v2 tags
+    cmd.extend(["-id3v2_version", "3"])  # Use ID3v2.3 (most compatible)
+
     # Add metadata tags
     if metadata:
         cmd.extend(["-metadata", f"title={metadata.get('title', '')}"])
@@ -125,6 +129,10 @@ def _transcode_to_wav(input_path: str, output_path: str, metadata: Optional[dict
         "-ar", "44100",  # CD quality sample rate
         "-ac", "2",  # Stereo
     ]
+
+    # Add ID3v2 tags for WAV (required for metadata)
+    cmd.extend(["-write_id3v2", "1"])  # Enable ID3v2 tags
+    cmd.extend(["-id3v2_version", "3"])  # Use ID3v2.3 (most compatible)
 
     # Add metadata tags (WAV has limited metadata support, but we can try)
     if metadata:
