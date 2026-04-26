@@ -128,7 +128,7 @@ def lookup_disc(disc_id: str, toc: str | None = None, physical_track_details: li
             releases = [format_release(r, disc_id, physical_track_details) for r in result["release-list"]]
 
     except musicbrainzngs.ResponseError as e:
-        logger.warning("Exact disc lookup failed: %s", e)
+        logger.info("Exact disc ID lookup returned no results (disc not in MusicBrainz database), trying TOC-based fallback")
 
     # Fallback: TOC-based fuzzy lookup
     if not releases and toc:
@@ -138,8 +138,9 @@ def lookup_disc(disc_id: str, toc: str | None = None, physical_track_details: li
             )
             if "release-list" in result:
                 releases = [format_release(r, disc_id, physical_track_details) for r in result["release-list"]]
+                logger.info("TOC-based lookup found %d release(s)", len(releases))
         except musicbrainzngs.ResponseError as e:
-            logger.warning("TOC-based lookup also failed: %s", e)
+            logger.warning("Both exact and TOC-based lookups failed. Disc may not be in MusicBrainz: %s", e)
 
     return releases
 
