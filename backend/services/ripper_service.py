@@ -304,6 +304,10 @@ def _check_dependencies() -> None:
 def _rip_worker_with_cleanup(device: str, release: Optional[dict], output_dir: Optional[str], selected_tracks: Optional[list[int]] = None) -> None:
     """Worker function with proper cleanup and exception handling."""
     logger.info("_rip_worker_with_cleanup: Worker started")
+
+    # Track eject state to avoid remounting after successful eject
+    ejected_successfully = False
+
     try:
         logger.info("_rip_worker_with_cleanup: Checking dependencies")
         _check_dependencies()
@@ -319,6 +323,7 @@ def _rip_worker_with_cleanup(device: str, release: Optional[dict], output_dir: O
                 from backend.services.drive_service import eject_disc
                 if eject_disc(device):
                     logger.info("_rip_worker_with_cleanup: Successfully ejected disc")
+                    ejected_successfully = True
                 else:
                     logger.warning("_rip_worker_with_cleanup: Failed to eject disc")
             else:
@@ -333,11 +338,16 @@ def _rip_worker_with_cleanup(device: str, release: Optional[dict], output_dir: O
             rip_state["phase"] = "error"
             rip_state["error"] = str(e)
     finally:
-        logger.info("_rip_worker_with_cleanup: Remounting device to restore normal system behavior")
-        try:
-            _remount_device(device)
-        except Exception as e:
-            logger.error("_rip_worker_with_cleanup: Failed to remount device: %s", str(e))
+        # Only remount if we didn't successfully eject the disc
+        # Remounting after eject puts the drive in an inconsistent state
+        if not ejected_successfully:
+            logger.info("_rip_worker_with_cleanup: Remounting device to restore normal system behavior")
+            try:
+                _remount_device(device)
+            except Exception as e:
+                logger.error("_rip_worker_with_cleanup: Failed to remount device: %s", str(e))
+        else:
+            logger.info("_rip_worker_with_cleanup: Skipping remount after successful eject")
 
         logger.info("_rip_worker_with_cleanup: Worker finishing, setting active=False")
         with _rip_lock:
