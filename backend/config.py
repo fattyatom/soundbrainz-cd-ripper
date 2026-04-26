@@ -6,8 +6,8 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULTS = {
     "output_dir": str(Path.home() / "Music"),
-    "folder_pattern": "{artist}/{album}/{number:02d} - {title}.{ext}",
-    "folder_pattern_multi_disc": "{artist}/{album}/CD{disc}/{number:02d} - {title}.{ext}",
+    "folder_pattern": "{album_artist}/{album}/{number:02d} - {title}.{ext}",
+    "folder_pattern_multi_disc": "{album_artist}/{album}/CD{disc}/{number:02d} - {title}.{ext}",
     "preferred_languages": ["en"],
     "preferred_country": "",
     "preferred_genre": "",
@@ -65,6 +65,7 @@ def migrate_config(config: dict) -> dict:
     - Removing old rip_speed setting
     - Adding new audio quality settings with sensible defaults
     - Converting old folder patterns to use dynamic extensions
+    - Migrating {artist} to {album_artist} in folder patterns
     """
     # Remove old rip_speed setting
     if "rip_speed" in config:
@@ -85,6 +86,37 @@ def migrate_config(config: dict) -> dict:
         config["folder_pattern"] = config["folder_pattern"][:-5] + ".{ext}"
     if config.get("folder_pattern_multi_disc", "").endswith(".flac"):
         config["folder_pattern_multi_disc"] = config["folder_pattern_multi_disc"][:-5] + ".{ext}"
+
+    # Migrate folder patterns from {artist} to {album_artist}
+    def migrate_artist_to_album_artist(pattern: str) -> str:
+        """Migrate {artist} to {album_artist} in folder patterns.
+
+        Rules:
+        1. Exact default patterns → replace with new defaults
+        2. Simple patterns starting with {artist}/ → substitute
+        3. Complex/custom patterns → leave unchanged
+        """
+        old_single = "{artist}/{album}/{number:02d} - {title}.{ext}"
+        new_single = "{album_artist}/{album}/{number:02d} - {title}.{ext}"
+        old_multi = "{artist}/{album}/CD{disc}/{number:02d} - {title}.{ext}"
+        new_multi = "{album_artist}/{album}/CD{disc}/{number:02d} - {title}.{ext}"
+
+        # Exact matches to old defaults
+        if pattern == old_single:
+            return new_single
+        if pattern == old_multi:
+            return new_multi
+
+        # Simple substitution for patterns starting with {artist}/
+        # Only migrate if {artist} appears once at the start (simple customization)
+        if pattern.startswith("{artist}/") and pattern.count("{artist}") == 1:
+            return pattern.replace("{artist}/", "{album_artist}/", 1)
+
+        # Complex or custom pattern - leave unchanged
+        return pattern
+
+    config["folder_pattern"] = migrate_artist_to_album_artist(config.get("folder_pattern", DEFAULTS["folder_pattern"]))
+    config["folder_pattern_multi_disc"] = migrate_artist_to_album_artist(config.get("folder_pattern_multi_disc", DEFAULTS["folder_pattern_multi_disc"]))
 
     return config
 

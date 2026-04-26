@@ -78,3 +78,54 @@ class TestGeneratePath:
         assert parts[2] == "Test_Artist"
         assert parts[3] == "Album_Name"
         assert "01 - Track_Name_.flac" == parts[4]
+
+    def test_generate_path_with_album_artist(self):
+        """Test that {album_artist} placeholder works in patterns."""
+        metadata = {
+            "album_artist": "Hans Zimmer",
+            "artist": "Hans Zimmer & Lisa Gerrard",
+            "album": "Gladiator",
+            "title": "Now We Are Free",
+            "number": 15,
+            "ext": "flac"
+        }
+
+        pattern = "{album_artist}/{album}/{number:02d} - {title}.{ext}"
+        result = generate_path("/Music", pattern, metadata)
+
+        assert result == "/Music/Hans Zimmer/Gladiator/15 - Now We Are Free.flac"
+
+    def test_various_artists_album_organization(self):
+        """Test that various artists albums group correctly."""
+        metadata = {
+            "album_artist": "Various Artists",
+            "artist": "Queen",
+            "album": "Highlander Soundtrack",
+            "title": "Princes of the Universe",
+            "number": 1,
+            "ext": "flac"
+        }
+
+        pattern = "{album_artist}/{album}/{number:02d} - {title}.{ext}"
+        result = generate_path("/Music", pattern, metadata)
+
+        # Should group under "Various Artists", not "Queen"
+        assert result == "/Music/Various Artists/Highlander Soundtrack/01 - Princes of the Universe.flac"
+
+    def test_album_artist_with_multi_disc(self):
+        """Test album artist with multi-disc albums."""
+        metadata = {
+            "album_artist": "Pink Floyd",
+            "artist": "Pink Floyd",
+            "album": "The Wall",
+            "title": "Another Brick in the Wall",
+            "number": 1,
+            "disc": 1,
+            "total_discs": 2,
+            "ext": "flac"
+        }
+
+        pattern = "{album_artist}/{album}/CD{disc}/{number:02d} - {title}.{ext}"
+        result = generate_path("/Music", pattern, metadata)
+
+        assert result == "/Music/Pink Floyd/The Wall/CD1/01 - Another Brick in the Wall.flac"

@@ -6,8 +6,8 @@ const SettingsView = {
     // Default settings for fallback
     DEFAULTS: {
         output_dir: "/Users/casey/Music",
-        folder_pattern: "{artist}/{album}/{number:02d} - {title}.{ext}",
-        folder_pattern_multi_disc: "{artist}/{album}/CD{disc}/{number:02d} - {title}.{ext}",
+        folder_pattern: "{album_artist}/{album}/{number:02d} - {title}.{ext}",
+        folder_pattern_multi_disc: "{album_artist}/{album}/CD{disc}/{number:02d} - {title}.{ext}",
         preferred_languages: ["en"],
         preferred_country: "",
         preferred_genre: "",
@@ -63,14 +63,14 @@ const SettingsView = {
                     <label for="folder-pattern">Folder/File Pattern (Single Disc)</label>
                     <input type="text" id="folder-pattern" value="${this._esc(displaySettings.folder_pattern)}"
                            placeholder="{artist}/{album}/{number:02d} - {title}.flac">
-                    <p class="form-hint">Used when album has only one CD. Available: {artist}, {album}, {title}, {number}, {year}, {genre}</p>
+                    <p class="form-hint">Used when album has only one CD. Available: {album_artist}, {artist}, {album}, {title}, {number}, {year}, {genre}</p>
                 </div>
 
                 <div class="form-group">
                     <label for="folder-pattern-multi">Folder/File Pattern (Multi-Disc)</label>
                     <input type="text" id="folder-pattern-multi" value="${this._esc(displaySettings.folder_pattern_multi_disc)}"
                            placeholder="{artist}/{album}/CD{disc}/{number:02d} - {title}.{ext}">
-                    <p class="form-hint">Used when album has multiple CDs. Additional: {disc} for CD number, {ext} for file extension</p>
+                    <p class="form-hint">Used when album has multiple CDs. Available: {album_artist}, {artist}, {album}, {title}, {number}, {disc}, {ext}, {year}, {genre}</p>
                 </div>
 
                 <div class="form-group" id="audio-quality-section">
