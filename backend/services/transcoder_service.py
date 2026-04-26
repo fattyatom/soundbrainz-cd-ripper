@@ -317,6 +317,7 @@ def transcode_album(
     for i, wav_file in enumerate(wav_files):
         # Get metadata for this track (by index)
         metadata = track_metadata_list[i] if i < len(track_metadata_list) else {}
+        logger.debug("Transcoding track %d: %s", i, metadata)
 
         # Use new format-aware transcoding
         output_path = Path(output_dir) / f"{wav_file.stem}.{audio_format}"

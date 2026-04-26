@@ -400,6 +400,8 @@ def _rip_worker(device: str, release: Optional[dict], output_dir: Optional[str],
         track_metadata_list = _build_track_metadata(release)
 
         # Transcode all formats (FLAC, AIFF, WAV) to ensure metadata and cover art are embedded
+        logger.info("Transcoding %d tracks with metadata: %s", len(track_metadata_list),
+                   track_metadata_list[0] if track_metadata_list else "No metadata")
         transcode_album = _get_transcoder()
         output_files = transcode_album(
             temp_dir, flac_dir, track_metadata_list,

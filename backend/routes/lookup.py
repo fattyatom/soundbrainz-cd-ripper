@@ -26,9 +26,15 @@ def get_lookup():
     # Look up on MusicBrainz
     releases = lookup_disc(disc_info["disc_id"], toc=disc_info.get("toc"))
 
-    # Apply smart prioritization
-    user_preferences = load_config()
-    releases = _prioritize_releases(releases, user_preferences)
+    # If no releases found, generate fallback metadata from physical disc
+    if not releases:
+        from backend.services.musicbrainz_service import generate_fallback_metadata
+        fallback = generate_fallback_metadata(device, disc_info)
+        releases = [fallback]
+    else:
+        # Apply smart prioritization only to MusicBrainz releases
+        user_preferences = load_config()
+        releases = _prioritize_releases(releases, user_preferences)
 
     return jsonify({
         "disc_id": disc_info["disc_id"],

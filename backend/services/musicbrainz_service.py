@@ -31,6 +31,57 @@ def get_disc_id(device: str) -> dict:
         raise RuntimeError(f"Failed to read disc ID from {device}: {e}")
 
 
+def generate_fallback_metadata(device: str, disc_info: dict) -> dict:
+    """Generate fallback metadata from physical disc when MusicBrainz lookup fails.
+
+    Args:
+        device: CD device path
+        disc_info: Dict with disc_id, toc, total_tracks from get_disc_id()
+
+    Returns:
+        Dict with basic release info using track count and durations from TOC
+    """
+    import discid
+
+    # Re-read the disc to get detailed track information
+    disc = discid.read(device)
+
+    # Extract track durations from TOC
+    tracks = []
+    for i, track in enumerate(disc.tracks, start=1):
+        # Calculate duration in milliseconds (sectors / 75 * 1000)
+        duration_ms = int((track.length / 75) * 1000) if track.length else 0
+
+        # Format duration as MM:SS
+        minutes = duration_ms // 60000
+        seconds = (duration_ms % 60000) // 1000
+
+        tracks.append({
+            "number": i,
+            "title": f"Track {i:02d}",  # Generic title
+            "duration_ms": duration_ms,
+            "artist": "Unknown Artist",
+        })
+
+    return {
+        "mbid": "",  # No MusicBrainz ID
+        "artist": "Unknown Artist",
+        "album": f"Unknown Disc ({disc_info['disc_id'][:8]})",
+        "year": "",
+        "country": "",
+        "label": "",
+        "language": "",
+        "release_type": "",
+        "medium_format": "CD",
+        "disc_number": 1,
+        "total_discs": 1,
+        "tracks": tracks,
+        "cover_art_url": "",
+        "priority_score": -1,  # Lowest priority
+        "match_reasons": ["Fallback metadata from physical disc"],
+    }
+
+
 def lookup_disc(disc_id: str, toc: str | None = None) -> list[dict]:
     """Look up a disc on MusicBrainz by disc ID.
 
@@ -231,12 +282,15 @@ def _extract_tracks(release: dict, disc_id: str) -> tuple[list[dict], int, int]:
     matching_medium = _find_matching_medium(release, disc_id)
 
     if not matching_medium:
-        # Fallback: extract all tracks if disc matching fails
-        tracks = []
-        for medium in release.get("medium-list", []):
-            for track in medium.get("track-list", []):
-                tracks.append(_extract_track_info(track))
-        return tracks, 1, len(release.get("medium-list", []))
+        # Fallback: extract tracks from first medium only
+        # This prevents combining tracks from all discs when disc ID matching fails
+        medium_list = release.get("medium-list", [])
+        if medium_list:
+            first_medium = medium_list[0]
+            tracks = [_extract_track_info(track) for track in first_medium.get("track-list", [])]
+            total_discs = len(medium_list)
+            return tracks, 1, total_discs
+        return [], 1, 1
 
     # Extract only tracks from matching medium
     disc_position = int(matching_medium.get("position", 1))

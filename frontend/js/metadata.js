@@ -51,6 +51,11 @@ const MetadataView = {
                         <span class="disc-total">of ${rel.total_discs}</span>
                     </div>
                 ` : ''}
+                ${(rel.match_reasons && rel.match_reasons.includes("Fallback metadata from physical disc")) ? `
+                    <div class="disc-indicator" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                        <span>⚠️ Fallback metadata from physical disc</span>
+                    </div>
+                ` : ''}
                 <table class="track-list">
                     <thead><tr><th><input type="checkbox" ${i === 0 ? 'checked' : ''} onchange="MetadataView.toggleAllTracks(this, ${i})"></th><th>#</th><th>Title</th><th>Duration</th></tr></thead>
                     <tbody>
