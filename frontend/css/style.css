@@ -52,6 +52,31 @@ nav {
     background: rgba(233, 69, 96, 0.1);
 }
 
+/* Active rip indicator in navigation */
+.nav-btn.rip-active {
+    color: #4caf50;
+    border-color: #4caf50;
+    background: rgba(76, 175, 80, 0.1);
+    animation: pulse-rip 2s infinite;
+}
+
+@keyframes pulse-rip {
+    0%, 100% {
+        background: rgba(76, 175, 80, 0.1);
+    }
+    50% {
+        background: rgba(76, 175, 80, 0.2);
+    }
+}
+
+/* Enhanced progress section */
+.progress-section {
+    padding: 1rem;
+    background: rgba(15, 52, 96, 0.3);
+    border-radius: 6px;
+    margin: 1rem 0;
+}
+
 main {
     max-width: 900px;
     margin: 2rem auto;

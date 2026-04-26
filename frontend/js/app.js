@@ -6,6 +6,10 @@ const App = {
     // Track current view
     currentView: "drives",
 
+    // Background monitoring
+    _backgroundCheckTimer: null,
+    _lastKnownRipState: null,
+
     // Application state persistence
     state: {
         // Rip state persistence
@@ -42,6 +46,100 @@ const App = {
         }
     },
 
+    async checkForActiveRip() {
+        try {
+            const status = await API.getRipStatus();
+
+            if (status.active) {
+                // Active rip - auto-navigate and start polling
+                this.switchView('rip');
+                RipView.resumePolling(status);
+            } else if (status.phase === 'done') {
+                // Rip completed while closed
+                this.showToast('Previous rip completed successfully', 'success');
+            } else if (status.phase === 'error') {
+                // Previous rip failed
+                this.showToast(`Previous rip failed: ${status.error || 'Unknown error'}`, 'error');
+            }
+        } catch (err) {
+            console.error('Failed to check rip status on init:', err);
+            // Non-blocking - don't prevent app from loading
+        }
+    },
+
+    startBackgroundRipMonitoring() {
+        // Check every 10 seconds
+        this._backgroundCheckTimer = setInterval(async () => {
+            await this._checkRipStateInBackground();
+        }, 10000);
+    },
+
+    stopBackgroundRipMonitoring() {
+        if (this._backgroundCheckTimer) {
+            clearInterval(this._backgroundCheckTimer);
+            this._backgroundCheckTimer = null;
+        }
+    },
+
+    async _checkRipStateInBackground() {
+        try {
+            const status = await API.getRipStatus();
+            const currentState = JSON.stringify(status);
+
+            // Only act if state changed
+            if (currentState !== this._lastKnownRipState) {
+                this._handleRipStateChange(status);
+                this._lastKnownRipState = currentState;
+            }
+        } catch (err) {
+            console.error('Background rip check failed:', err);
+        }
+    },
+
+    _handleRipStateChange(status) {
+        const oldState = this._lastKnownRipState ? JSON.parse(this._lastKnownRipState) : null;
+
+        // Handle rip completion
+        if (!status.active && status.phase === 'done') {
+            this.showToast('Rip completed successfully!', 'success');
+            this.updateRipNavigationIndicator(false);
+            return;
+        }
+
+        // Handle rip error
+        if (status.phase === 'error') {
+            this.showToast(`Rip failed: ${status.error || 'Unknown error'}`, 'error');
+            this.updateRipNavigationIndicator(false);
+            return;
+        }
+
+        // Handle rip becoming active
+        if (status.active && (!oldState || !oldState.active)) {
+            this.showToast('Rip started - check Rip view for progress', 'info');
+            this.updateRipNavigationIndicator(true);
+
+            // If currently on rip view, auto-start polling
+            if (this.currentView === 'rip') {
+                RipView.resumePolling(status);
+            }
+            return;
+        }
+
+        // Handle rip stopping (not complete/error)
+        if (!status.active && oldState && oldState.active) {
+            this.updateRipNavigationIndicator(false);
+        }
+    },
+
+    updateRipNavigationIndicator(isActive) {
+        const ripBtn = document.querySelector('.nav-btn[data-view="rip"]');
+        if (ripBtn) {
+            // Add visual indicator for active rip
+            ripBtn.classList.toggle('rip-active', isActive);
+            ripBtn.textContent = isActive ? 'Rip ●' : 'Rip';
+        }
+    },
+
     init() {
         // Set up nav buttons
         document.querySelectorAll(".nav-btn").forEach(btn => {
@@ -52,6 +150,12 @@ const App = {
 
         // Load initial view
         DrivesView.render();
+
+        // Check for active rip on page load
+        this.checkForActiveRip();
+
+        // Start background monitoring
+        this.startBackgroundRipMonitoring();
     },
 
     switchView(viewName) {
@@ -98,3 +202,9 @@ const App = {
 
 // Start the app
 document.addEventListener("DOMContentLoaded", () => App.init());
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+    App.stopBackgroundRipMonitoring();
+    RipView._stopPolling();
+});

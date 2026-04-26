@@ -4,6 +4,7 @@
  */
 const RipView = {
     _pollTimer: null,
+    _consecutiveErrors: 0,
 
     render() {
         // Initial state shown in index.html; dynamic content added by startLookup/startRip
@@ -56,11 +57,59 @@ const RipView = {
         this.startRip(device, null);
     },
 
-    resumePolling(savedStatus) {
-        // Restore UI from saved state
-        this._showProgress(savedStatus);
+    _getSavedStatus() {
+        const progressBar = document.getElementById("rip-progress-fill");
+        const progressText = document.getElementById("rip-progress-text");
 
-        // Resume polling
+        if (!progressBar || !progressText) return null;
+
+        return {
+            phase: progressBar.dataset.phase || "",
+            track: progressBar.dataset.track || "0",
+            total: progressBar.dataset.total || "0",
+            percent: progressBar.style.width || "0%",
+            text: progressText.textContent || "Starting...",
+            active: true
+        };
+    },
+
+    _getPhaseText(status) {
+        if (status.phase === 'ripping') {
+            return `Ripping track ${status.track} of ${status.total_tracks} (${status.percent}%)`;
+        } else if (status.phase === 'transcoding') {
+            return `Transcoding to FLAC (${status.percent}%)`;
+        } else if (status.phase === 'organizing') {
+            return 'Organizing files...';
+        } else if (status.phase === 'done') {
+            return 'Complete!';
+        } else if (status.phase === 'error') {
+            return `Error: ${status.error || 'Unknown error'}`;
+        } else if (status.phase === 'starting') {
+            return 'Starting rip...';
+        }
+        return 'Starting...';
+    },
+
+    resumePolling(backendStatus) {
+        // Accept either backend status or saved state
+        const status = backendStatus || this._getSavedStatus();
+
+        if (!status || (status.active === false && status.phase !== 'done' && status.phase !== 'error')) {
+            this.render();
+            return;
+        }
+
+        // Map backend status to UI format
+        const uiStatus = {
+            phase: status.phase || "",
+            track: status.track || "0",
+            total: status.total_tracks || "0",
+            percent: `${status.percent || 0}%`,
+            text: this._getPhaseText(status),
+            active: status.active
+        };
+
+        this._showProgress(uiStatus);
         this._startPolling();
     },
 
@@ -111,6 +160,9 @@ const RipView = {
         try {
             const status = await API.getRipStatus();
 
+            // Reset error counter on success
+            this._consecutiveErrors = 0;
+
             // Update progress bar
             progressBar.style.width = `${status.percent || 0}%`;
             progressBar.dataset.phase = status.phase || "";
@@ -129,10 +181,12 @@ const RipView = {
                 progressBar.style.width = "100%";
                 this._stopPolling();
                 App.showToast("Rip complete!", "success");
+                App.updateRipNavigationIndicator(false);
             } else if (status.phase === "error") {
                 progressText.textContent = `Error: ${status.error || "Unknown error"}`;
                 this._stopPolling();
                 App.showToast(status.error || "Unknown error", "error");
+                App.updateRipNavigationIndicator(false);
             } else if (status.phase === "starting") {
                 progressText.textContent = "Starting rip...";
             }
@@ -143,10 +197,18 @@ const RipView = {
             }
         } catch (err) {
             console.error("Polling error:", err);
-            // Don't stop polling on transient errors, only on critical failures
+
+            // Implement exponential backoff for network errors
             if (err.message && err.message.includes("Failed to fetch")) {
-                this._stopPolling();
-                App.showToast("Connection lost - refresh to continue", "error");
+                this._consecutiveErrors = (this._consecutiveErrors || 0) + 1;
+
+                if (this._consecutiveErrors >= 3) {
+                    this._stopPolling();
+                    App.showToast("Connection lost - refresh to continue", "error");
+                }
+            } else {
+                // Reset error counter on non-network errors
+                this._consecutiveErrors = 0;
             }
         }
     },
