@@ -5,6 +5,16 @@
 const MetadataView = {
     render(container, data, drive) {
         const releases = data.releases || [];
+
+        // Debug: log the releases data to understand what we're working with
+        console.log("DEBUG: Releases data:", releases);
+        if (releases.length > 0) {
+            console.log("DEBUG: First release:", releases[0]);
+            console.log("DEBUG: match_reasons:", releases[0].match_reasons);
+            console.log("DEBUG: priority_score:", releases[0].priority_score);
+            console.log("DEBUG: mbid:", releases[0].mbid);
+        }
+
         if (releases.length === 0) {
             container.innerHTML = `
                 <div class="empty-state">
@@ -18,7 +28,17 @@ const MetadataView = {
             return;
         }
 
-        const releasesHTML = releases.map((rel, i) => `
+        const releasesHTML = releases.map((rel, i) => {
+            // Debug: check each release
+            console.log(`DEBUG Release ${i}:`, {
+                mbid: rel.mbid,
+                priority_score: rel.priority_score,
+                match_reasons: rel.match_reasons,
+                disc_number: rel.disc_number,
+                total_discs: rel.total_discs
+            });
+
+            return `
             <div class="release-card ${i === 0 ? 'selected' : ''}" data-index="${i}" onclick="MetadataView.selectRelease(${i})">
                 ${rel.match_reasons && rel.match_reasons.length > 0 ? `
                     <div class="priority-badge">
@@ -51,9 +71,24 @@ const MetadataView = {
                         <span class="disc-total">of ${rel.total_discs}</span>
                     </div>
                 ` : ''}
-                ${(rel.match_reasons && rel.match_reasons.includes("Fallback metadata from physical disc")) ? `
+
+                ${((rel.match_reasons && rel.match_reasons.some && rel.match_reasons.some(r => r.includes("Fallback"))) || rel.priority_score === -1 || !rel.mbid || rel.mbid === "") ? `
                     <div class="disc-indicator" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
                         <span>⚠️ Fallback metadata from physical disc</span>
+                    </div>
+                    <div class="disc-override" style="margin: 1rem 0; padding: 1rem; background: #fff3cd; border-radius: 8px; border: 2px solid #ffc107;">
+                        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+                                <span>This is Disc:</span>
+                                <input type="number" min="1" max="10" value="${rel.disc_number}" id="disc-num-${i}" style="width: 60px; padding: 0.4rem; border: 2px solid #ffc107; border-radius: 4px; font-weight: bold;">
+                            </label>
+                            <span style="font-weight: 600;">of</span>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 600;">
+                                <input type="number" min="1" max="10" value="${rel.total_discs}" id="total-discs-${i}" style="width: 60px; padding: 0.4rem; border: 2px solid #ffc107; border-radius: 4px; font-weight: bold;">
+                            </label>
+                            <button class="btn" onclick="MetadataView.updateDiscParams(${i})" style="padding: 0.5rem 1rem; font-size: 0.9rem; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">Update Disc Number</button>
+                            <span style="font-size: 0.9rem; color: #856404; font-weight: 500;">(System detected this as disc ${rel.disc_number} - correct if needed)</span>
+                        </div>
                     </div>
                 ` : ''}
                 <table class="track-list">
@@ -70,7 +105,8 @@ const MetadataView = {
                     </tbody>
                 </table>
             </div>
-        `).join("");
+        `;
+        }).join("");
 
         container.innerHTML = `
             <h2 style="margin-bottom: 1rem;">Select a Release</h2>
@@ -115,6 +151,30 @@ const MetadataView = {
     getSelectedTracks() {
         const checkboxes = document.querySelectorAll(`.track-checkbox[data-release-index="${this._selectedIndex}"]:checked`);
         return Array.from(checkboxes).map(cb => parseInt(cb.dataset.trackNumber)).sort((a, b) => a - b);
+    },
+
+    updateDiscParams(releaseIndex) {
+        const discNumInput = document.getElementById(`disc-num-${releaseIndex}`);
+        const totalDiscsInput = document.getElementById(`total-discs-${releaseIndex}`);
+
+        const newDiscNum = parseInt(discNumInput.value);
+        const newTotalDiscs = parseInt(totalDiscsInput.value);
+
+        if (newDiscNum < 1 || newTotalDiscs < 1 || newDiscNum > newTotalDiscs) {
+            App.showToast("Invalid disc numbers. Disc must be between 1 and total discs.", "error");
+            return;
+        }
+
+        // Update the release object
+        this._releases[releaseIndex].disc_number = newDiscNum;
+        this._releases[releaseIndex].total_discs = newTotalDiscs;
+
+        // Re-render the view to show updated disc numbers
+        this.render(document.getElementById("rip-container"), {
+            releases: this._releases
+        }, this._drive);
+
+        App.showToast(`Updated to Disc ${newDiscNum} of ${newTotalDiscs}`, "success");
     },
 
     toggleAllTracks(checkbox, releaseIndex) {
