@@ -409,3 +409,89 @@ code {
     margin-left: 0.5rem;
     margin-top: 0.25rem;
 }
+
+/* Audio Quality Settings */
+#audio-quality-section {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: rgba(15, 52, 96, 0.3);
+    border: 1px solid #0f3460;
+    border-radius: 6px;
+}
+
+/* Preset buttons */
+.preset-btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid #555;
+    background: transparent;
+    color: #a0a0b8;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.2s ease;
+}
+
+.preset-btn:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: #888;
+    color: #e0e0e0;
+}
+
+.preset-btn.active {
+    background: #e94560;
+    color: white;
+    border-color: #e94560;
+}
+
+/* Audio format dropdown */
+#audio-format {
+    padding: 0.5rem;
+    border: 1px solid #555;
+    border-radius: 4px;
+    background: #16213e;
+    color: #e0e0e0;
+    font-size: 0.9rem;
+    min-width: 250px;
+    cursor: pointer;
+}
+
+#audio-format:focus {
+    outline: none;
+    border-color: #e94560;
+}
+
+/* FLAC compression slider */
+#flac-compression {
+    width: 100%;
+    margin: 0.5rem 0;
+    cursor: pointer;
+}
+
+#flac-compression:focus {
+    outline: none;
+}
+
+/* Format description */
+.format-description {
+    padding: 0.75rem;
+    background: rgba(15, 52, 96, 0.5);
+    border-left: 4px solid #e94560;
+    border-radius: 4px;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    color: #a0a0b8;
+}
+
+.format-description strong {
+    color: #e0e0e0;
+}
+
+/* Transitions for format switching */
+.format-specific-row {
+    transition: opacity 0.3s ease, height 0.3s ease;
+}
+
+.format-specific-row.hidden {
+    display: none !important;
+}

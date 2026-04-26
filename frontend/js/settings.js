@@ -6,12 +6,15 @@ const SettingsView = {
     // Default settings for fallback
     DEFAULTS: {
         output_dir: "/Users/casey/Music",
-        folder_pattern: "{artist}/{album}/{number:02d} - {title}.flac",
-        folder_pattern_multi_disc: "{artist}/{album}/CD{disc}/{number:02d} - {title}.flac",
+        folder_pattern: "{artist}/{album}/{number:02d} - {title}.{ext}",
+        folder_pattern_multi_disc: "{artist}/{album}/CD{disc}/{number:02d} - {title}.{ext}",
         preferred_languages: ["en"],
         preferred_country: "",
         preferred_genre: "",
-        rip_speed: "balanced",
+        // New audio quality settings (replaces rip_speed)
+        audio_format: "aiff",
+        flac_compression_level: 0,
+        quality_preset: "audiophile",
     },
 
     async render() {
@@ -35,7 +38,9 @@ const SettingsView = {
             preferred_languages: settings.preferred_languages || this.DEFAULTS.preferred_languages,
             preferred_country: settings.preferred_country || this.DEFAULTS.preferred_country,
             preferred_genre: settings.preferred_genre || this.DEFAULTS.preferred_genre,
-            rip_speed: settings.rip_speed || this.DEFAULTS.rip_speed,
+            audio_format: settings.audio_format || this.DEFAULTS.audio_format,
+            flac_compression_level: settings.flac_compression_level || this.DEFAULTS.flac_compression_level,
+            quality_preset: settings.quality_preset || this.DEFAULTS.quality_preset,
         };
 
         const languages = displaySettings.preferred_languages.join(', ');
@@ -62,18 +67,48 @@ const SettingsView = {
                 <div class="form-group">
                     <label for="folder-pattern-multi">Folder/File Pattern (Multi-Disc)</label>
                     <input type="text" id="folder-pattern-multi" value="${this._esc(displaySettings.folder_pattern_multi_disc)}"
-                           placeholder="{artist}/{album}/CD{disc}/{number:02d} - {title}.flac">
-                    <p class="form-hint">Used when album has multiple CDs. Additional: {disc} for CD number</p>
+                           placeholder="{artist}/{album}/CD{disc}/{number:02d} - {title}.{ext}">
+                    <p class="form-hint">Used when album has multiple CDs. Additional: {disc} for CD number, {ext} for file extension</p>
                 </div>
 
-                <div class="form-group">
-                    <label for="rip-speed">Rip Speed</label>
-                    <select id="rip-speed">
-                        <option value="accurate" ${displaySettings.rip_speed === 'accurate' ? 'selected' : ''}>Accurate (Best Quality)</option>
-                        <option value="balanced" ${displaySettings.rip_speed === 'balanced' ? 'selected' : ''}>Balanced (Recommended)</option>
-                        <option value="fast" ${displaySettings.rip_speed === 'fast' ? 'selected' : ''}>Fast (Maximum Speed)</option>
-                    </select>
-                    <p class="form-hint">Controls ripping speed vs error recovery. Accurate is slowest but best for damaged discs.</p>
+                <div class="form-group" id="audio-quality-section">
+                    <label style="font-weight: bold; margin-bottom: 0.5rem; display: block;">Audio Quality</label>
+
+                    <!-- Quality Presets -->
+                    <div style="margin-bottom: 1rem;">
+                        <label style="font-weight: normal; margin-bottom: 0.25rem; display: block;">Quality Preset</label>
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                            <button type="button" data-preset="audiophile" class="preset-btn ${displaySettings.quality_preset === 'audiophile' ? 'active' : ''}">Audiophile</button>
+                            <button type="button" data-preset="portable" class="preset-btn ${displaySettings.quality_preset === 'portable' ? 'active' : ''}">Portable</button>
+                            <button type="button" data-preset="archive" class="preset-btn ${displaySettings.quality_preset === 'archive' ? 'active' : ''}">Archive</button>
+                            <button type="button" data-preset="custom" class="preset-btn ${displaySettings.quality_preset === 'custom' ? 'active' : ''}">Custom</button>
+                        </div>
+                    </div>
+
+                    <!-- Audio Format Selection -->
+                    <div style="margin-bottom: 1rem;">
+                        <label for="audio-format" style="font-weight: normal; margin-bottom: 0.25rem; display: block;">Audio Format</label>
+                        <select id="audio-format" name="audio_format" style="padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; background-color: white; min-width: 250px;">
+                            <option value="aiff" ${displaySettings.audio_format === 'aiff' ? 'selected' : ''}>AIFF (Uncompressed, Professional)</option>
+                            <option value="wav" ${displaySettings.audio_format === 'wav' ? 'selected' : ''}>WAV (Uncompressed, Universal)</option>
+                            <option value="flac" ${displaySettings.audio_format === 'flac' ? 'selected' : ''}>FLAC (Lossless, Compressed)</option>
+                        </select>
+                    </div>
+
+                    <!-- FLAC Compression Level (only shown for FLAC format) -->
+                    <div id="flac-compression-row" style="margin-bottom: 1rem; display: ${displaySettings.audio_format === 'flac' ? 'block' : 'none'};">
+                        <label for="flac-compression" style="font-weight: normal; margin-bottom: 0.25rem; display: block;">FLAC Compression Level</label>
+                        <input type="range" id="flac-compression" name="flac_compression_level"
+                               min="0" max="12" value="${displaySettings.flac_compression_level}"
+                               style="width: 100%; margin: 0.5rem 0;">
+                        <span style="font-weight: bold; color: #007bff;">${displaySettings.flac_compression_level} (${this._getCompressionDescription(displaySettings.flac_compression_level)})</span>
+                        <p class="form-hint">0 = No compression (fastest), 5 = Balanced, 8 = High compression, 12 = Maximum compression</p>
+                    </div>
+
+                    <!-- Format Info Display -->
+                    <div id="format-description" class="format-description" style="padding: 0.5rem; background-color: #f8f9fa; border-left: 4px solid #007bff; border-radius: 4px; margin-top: 0.5rem; font-size: 0.9em; line-height: 1.4;">
+                        ${this._getFormatDescription(displaySettings.audio_format)}
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -99,6 +134,105 @@ const SettingsView = {
             </form>
             <div id="structure-result" style="margin-top: 1rem;"></div>
         `;
+
+        // Set up audio quality event listeners
+        this._setupAudioQualityListeners();
+    },
+
+    _setupAudioQualityListeners() {
+        const formatSelect = document.getElementById('audio-format');
+        const flacRow = document.getElementById('flac-compression-row');
+        const formatDesc = document.getElementById('format-description');
+
+        // Format selection - critical: controls visibility of compression options
+        formatSelect.addEventListener('change', (e) => {
+            const format = e.target.value;
+
+            // CRITICAL: Only show compression controls for FLAC format
+            // AIFF and WAV are uncompressed, so compression controls are hidden
+            if (format === 'flac') {
+                flacRow.style.display = 'block';
+            } else {
+                flacRow.style.display = 'none';
+            }
+
+            // Update format description
+            formatDesc.innerHTML = this._getFormatDescription(format);
+
+            // Switch to custom preset when manually changing format
+            document.querySelector('[data-preset="custom"]').click();
+        });
+
+        // FLAC compression slider (only relevant for FLAC format)
+        const compressionSlider = document.getElementById('flac-compression');
+        compressionSlider.addEventListener('input', (e) => {
+            const level = e.target.value;
+            const valueDisplay = compressionSlider.nextElementSibling;
+            valueDisplay.textContent = `${level} (${this._getCompressionDescription(level)})`;
+            document.querySelector('[data-preset="custom"]').click();
+        });
+
+        // Preset buttons
+        document.querySelectorAll('.preset-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+
+                const preset = e.target.dataset.preset;
+                if (preset !== 'custom') {
+                    this._applyQualityPreset(preset);
+                }
+            });
+        });
+    },
+
+    _applyQualityPreset(preset) {
+        const settings = {
+            audiophile: { format: 'aiff', flac_level: 0 },
+            portable: { format: 'flac', flac_level: 5 },
+            archive: { format: 'flac', flac_level: 8 }
+        };
+
+        const config = settings[preset];
+        const formatSelect = document.getElementById('audio-format');
+        const flacRow = document.getElementById('flac-compression-row');
+
+        // Set format
+        formatSelect.value = config.format;
+
+        // CRITICAL: Only set and show compression controls for FLAC format
+        if (config.format === 'flac') {
+            const compressionSlider = document.getElementById('flac-compression');
+            compressionSlider.value = config.flac_level;
+            const valueDisplay = compressionSlider.nextElementSibling;
+            valueDisplay.textContent = `${config.flac_level} (${this._getCompressionDescription(config.flac_level)})`;
+            flacRow.style.display = 'block';
+        } else {
+            // For AIFF/WAV, hide compression controls entirely
+            flacRow.style.display = 'none';
+        }
+
+        // Update format description
+        const formatDesc = document.getElementById('format-description');
+        formatDesc.innerHTML = this._getFormatDescription(config.format);
+    },
+
+    _getCompressionDescription(level) {
+        if (level == 0) return 'No compression';
+        if (level <= 3) return 'Low compression';
+        if (level <= 6) return 'Balanced';
+        if (level <= 9) return 'High compression';
+        return 'Maximum compression';
+    },
+
+    _getFormatDescription(format) {
+        const descriptions = {
+            aiff: '<strong>AIFF:</strong> Uncompressed professional audio format. Largest files, fastest encoding. Professional audio standard.',
+            wav: '<strong>WAV:</strong> Uncompressed universal audio format. Largest files, fastest encoding. Maximum compatibility.',
+            flac: '<strong>FLAC:</strong> Lossless compressed format. Smaller files than AIFF/WAV, slower encoding. Perfect audio quality with compression.'
+        };
+
+        return descriptions[format] || descriptions['aiff'];
     },
 
     async onSave(event) {
@@ -112,10 +246,13 @@ const SettingsView = {
             output_dir: document.getElementById("output-dir").value,
             folder_pattern: document.getElementById("folder-pattern").value,
             folder_pattern_multi_disc: document.getElementById("folder-pattern-multi").value,
-            rip_speed: document.getElementById("rip-speed").value,
             preferred_languages: languages,
             preferred_country: document.getElementById("pref-country").value,
             preferred_genre: document.getElementById("pref-genre").value,
+            // New audio quality settings
+            audio_format: document.getElementById("audio-format").value,
+            flac_compression_level: parseInt(document.getElementById("flac-compression").value),
+            quality_preset: document.querySelector(".preset-btn.active")?.dataset.preset || "custom",
         };
 
         try {

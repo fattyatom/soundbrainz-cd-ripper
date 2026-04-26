@@ -239,17 +239,24 @@ def _rip_worker(device: str, release: Optional[dict], output_dir: Optional[str],
             if download_cover_art(release["mbid"], cover_path):
                 cover_art_path = cover_path
 
-        # Phase 3: Transcode WAV to FLAC
+        # Phase 3: Transcode with format awareness
         with _rip_lock:
             rip_state["phase"] = "transcoding"
             rip_state["percent"] = 0
 
+        # Load audio format configuration
+        config = _get_config()()
+        audio_format = config.get("audio_format", "aiff")
+        flac_compression = config.get("flac_compression_level", 0)
+
         track_metadata_list = _build_track_metadata(release)
         transcode_album = _get_transcoder()
-        flac_files = transcode_album(
+        output_files = transcode_album(
             temp_dir, flac_dir, track_metadata_list,
             cover_art_path=cover_art_path,
             progress_callback=_update_transcode_progress,
+            audio_format=audio_format,
+            flac_compression_level=flac_compression,
         )
 
         # Phase 4: Organize into library
@@ -275,12 +282,14 @@ def _rip_worker(device: str, release: Optional[dict], output_dir: Optional[str],
                 pattern = config.get("folder_pattern", "{artist}/{album}/{number:02d} - {title}.flac")
                 logger.info("Using single-disc pattern: %s", pattern)
 
-            for i, flac_path in enumerate(flac_files):
+            for i, output_path in enumerate(output_files):
                 track_meta = track_metadata_list[i] if i < len(track_metadata_list) else {}
+                # Add file extension to track metadata for path generation
+                track_meta["ext"] = audio_format
                 dest = generate_path(final_dir, pattern, track_meta)
                 ensure_directory(dest)
-                shutil.move(flac_path, dest)
-                logger.info("Moved %s -> %s", flac_path, dest)
+                shutil.move(output_path, dest)
+                logger.info("Moved %s -> %s", output_path, dest)
 
             # Also copy cover art to the album folder if available
             if cover_art_path and track_metadata_list:
