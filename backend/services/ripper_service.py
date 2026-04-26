@@ -226,7 +226,7 @@ def start_rip(device: str, release: Optional[dict] = None, output_dir: Optional[
 
     with _rip_lock:
         if rip_state["active"]:
-            # Check if the thread is still alive
+            # Check if the thread is actually still alive
             if _rip_thread and _rip_thread.is_alive():
                 logger.warning("start_rip: Previous thread still alive, cannot start new rip")
                 return {"error": "A rip is already in progress"}
@@ -245,11 +245,6 @@ def start_rip(device: str, release: Optional[dict] = None, output_dir: Optional[
             "error": None,
             "output_dir": output_dir,
         })
-
-    # Stop any existing thread
-    if _rip_thread and _rip_thread.is_alive():
-        logger.info("start_rip: Stopping existing thread")
-        _rip_thread.join(timeout=1.0)
 
     # Create regular (non-daemon) thread to prevent premature termination
     logger.info("start_rip: Creating new thread")
