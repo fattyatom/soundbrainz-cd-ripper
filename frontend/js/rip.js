@@ -5,6 +5,8 @@
 const RipView = {
     _pollTimer: null,
     _consecutiveErrors: 0,
+    _backoffLevel: 0,
+    _currentBackoff: 0,
 
     render() {
         // Initial state shown in index.html; dynamic content added by startLookup/startRip
@@ -142,9 +144,9 @@ const RipView = {
         `;
     },
 
-    _startPolling() {
+    _startPolling(delay = 2000) {
         this._stopPolling();
-        this._pollTimer = setInterval(() => this._pollStatus(), 2000);
+        this._pollTimer = setInterval(() => this._pollStatus(), delay);
     },
 
     _stopPolling() {
@@ -152,6 +154,19 @@ const RipView = {
             clearInterval(this._pollTimer);
             this._pollTimer = null;
         }
+    },
+
+    _getNextBackoffDelay() {
+        const delays = [2000, 4000, 8000, 16000, 32000]; // 2s, 4s, 8s, 16s, 32s
+        this._backoffLevel = Math.min(this._backoffLevel + 1, delays.length - 1);
+        this._currentBackoff = delays[this._backoffLevel];
+        return this._currentBackoff;
+    },
+
+    _resetBackoff() {
+        this._backoffLevel = 0;
+        this._currentBackoff = 0;
+        this._consecutiveErrors = 0;
     },
 
     async _pollStatus() {
@@ -167,8 +182,15 @@ const RipView = {
         try {
             const status = await API.getRipStatus();
 
-            // Reset error counter on success
-            this._consecutiveErrors = 0;
+            // Check if we were in backoff and connection is restored
+            if (this._backoffLevel > 0) {
+                console.log("Connection restored - returning to normal polling interval");
+                App.showToast("Connection restored", "success");
+
+                // Reset backoff and return to normal polling
+                this._resetBackoff();
+                this._startPolling(2000);
+            }
 
             // Update progress bar
             progressBar.style.width = `${status.percent || 0}%`;
@@ -208,14 +230,20 @@ const RipView = {
             // Implement exponential backoff for network errors
             if (err.message && err.message.includes("Failed to fetch")) {
                 this._consecutiveErrors = (this._consecutiveErrors || 0) + 1;
+                const nextDelay = this._getNextBackoffDelay();
 
-                if (this._consecutiveErrors >= 3) {
-                    this._stopPolling();
-                    App.showToast("Connection lost - refresh to continue", "error");
+                console.log(`Connection failed (${this._consecutiveErrors} consecutive errors). Retrying in ${nextDelay / 1000}s...`);
+
+                // Show temporary toast for extended backoffs
+                if (this._backoffLevel >= 2) {
+                    App.showToast(`Connection lost - retrying in ${nextDelay / 1000}s...`, "warning");
                 }
+
+                // Restart polling with exponential backoff delay
+                this._startPolling(nextDelay);
             } else {
-                // Reset error counter on non-network errors
-                this._consecutiveErrors = 0;
+                // Reset error counter and backoff on non-network errors
+                this._resetBackoff();
             }
         }
     },
