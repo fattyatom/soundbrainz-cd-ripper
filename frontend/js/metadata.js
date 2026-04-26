@@ -114,7 +114,9 @@ const MetadataView = {
 
     toggleAllTracks(checkbox, releaseIndex) {
         const checkboxes = document.querySelectorAll(`.track-checkbox[data-release-index="${releaseIndex}"]`);
-        checkboxes.forEach(cb => cb.checked = checkbox.checked);
+        checkboxes.forEach(cb => {
+            cb.checked = checkbox.checked;
+        });
     },
 
     _esc(str) {
