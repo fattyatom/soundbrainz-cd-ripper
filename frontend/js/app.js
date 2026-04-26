@@ -37,13 +37,53 @@ const App = {
         },
 
         // Restore rip state when returning to rip view
-        restoreRipState() {
+        async restoreRipState() {
+            // First check if we have in-memory state
             if (this.isRipping && this.ripStatus) {
                 RipView.resumePolling(this.ripStatus);
-            } else {
+                return;
+            }
+
+            // If no in-memory state, check backend directly
+            try {
+                const status = await API.getRipStatus();
+                if (status.active) {
+                    // Backend has active rip - initialize state and show it
+                    this.isRipping = true;
+                    this.ripStatus = {
+                        phase: status.phase || "",
+                        track: status.track || "0",
+                        total: status.total_tracks || "0",
+                        percent: `${status.percent || 0}%`,
+                        text: this._getPhaseTextForStatus(status),
+                        active: true
+                    };
+                    RipView.resumePolling(this.ripStatus);
+                } else {
+                    // No active rip - show default state
+                    RipView.render();
+                }
+            } catch (err) {
+                console.error('Failed to check rip status when restoring:', err);
+                // On error, show default state
                 RipView.render();
             }
         }
+    },
+
+    _getPhaseTextForStatus(status) {
+        if (status.phase === 'ripping') {
+            return `Ripping track ${status.track} of ${status.total_tracks} (${status.percent}%)`;
+        } else if (status.phase === 'transcoding') {
+            return `Transcoding to FLAC (${status.percent}%)`;
+        } else if (status.phase === 'organizing') {
+            return 'Organizing files...';
+        } else if (status.phase === 'done') {
+            return 'Complete!';
+        } else if (status.phase === 'starting') {
+            return 'Starting rip...';
+        }
+        return 'In progress...';
     },
 
     async checkForActiveRip() {
@@ -51,9 +91,22 @@ const App = {
             const status = await API.getRipStatus();
 
             if (status.active) {
-                // Active rip - auto-navigate and start polling
-                this.switchView('rip');
-                RipView.resumePolling(status);
+                // Active rip - initialize state but don't auto-navigate
+                this.state.isRipping = true;
+                this.state.ripStatus = {
+                    phase: status.phase || "",
+                    track: status.track || "0",
+                    total: status.total_tracks || "0",
+                    percent: `${status.percent || 0}%`,
+                    text: this._getPhaseTextForStatus(status),
+                    active: true
+                };
+
+                // Update navigation indicator
+                this.updateRipNavigationIndicator(true);
+
+                // Show toast - user can manually navigate to Rip view
+                this.showToast('Active rip detected - click Rip view to see progress', 'info');
             } else if (status.phase === 'done') {
                 // Rip completed while closed
                 this.showToast('Previous rip completed successfully', 'success');
@@ -103,6 +156,10 @@ const App = {
         if (!status.active && status.phase === 'done') {
             this.showToast('Rip completed successfully!', 'success');
             this.updateRipNavigationIndicator(false);
+
+            // Clear in-memory state
+            this.state.isRipping = false;
+            this.state.ripStatus = null;
             return;
         }
 
@@ -110,6 +167,10 @@ const App = {
         if (status.phase === 'error') {
             this.showToast(`Rip failed: ${status.error || 'Unknown error'}`, 'error');
             this.updateRipNavigationIndicator(false);
+
+            // Clear in-memory state
+            this.state.isRipping = false;
+            this.state.ripStatus = null;
             return;
         }
 
@@ -118,9 +179,20 @@ const App = {
             this.showToast('Rip started - check Rip view for progress', 'info');
             this.updateRipNavigationIndicator(true);
 
+            // Initialize in-memory state
+            this.state.isRipping = true;
+            this.state.ripStatus = {
+                phase: status.phase || "",
+                track: status.track || "0",
+                total: status.total_tracks || "0",
+                percent: `${status.percent || 0}%`,
+                text: this._getPhaseTextForStatus(status),
+                active: true
+            };
+
             // If currently on rip view, auto-start polling
             if (this.currentView === 'rip') {
-                RipView.resumePolling(status);
+                RipView.resumePolling(this.state.ripStatus);
             }
             return;
         }
@@ -128,6 +200,10 @@ const App = {
         // Handle rip stopping (not complete/error)
         if (!status.active && oldState && oldState.active) {
             this.updateRipNavigationIndicator(false);
+
+            // Clear in-memory state
+            this.state.isRipping = false;
+            this.state.ripStatus = null;
         }
     },
 
@@ -140,7 +216,7 @@ const App = {
         }
     },
 
-    init() {
+    async init() {
         // Set up nav buttons
         document.querySelectorAll(".nav-btn").forEach(btn => {
             btn.addEventListener("click", () => {
@@ -148,11 +224,11 @@ const App = {
             });
         });
 
-        // Load initial view
-        DrivesView.render();
+        // Load initial view (await to ensure it completes)
+        await DrivesView.render();
 
-        // Check for active rip on page load
-        this.checkForActiveRip();
+        // Check for active rip on page load (after drives are loaded)
+        await this.checkForActiveRip();
 
         // Start background monitoring
         this.startBackgroundRipMonitoring();

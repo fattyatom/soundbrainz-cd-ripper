@@ -59,14 +59,11 @@ const DrivesView = {
         // Store drives data for later use
         this._drives = drives;
 
-        // NEW: Auto-select single drive with disc
+        // Auto-select single drive (but don't auto-lookup)
         if (drives.length === 1 && drives[0].has_disc) {
             this.selectDrive(0);
-            // Auto-lookup after short delay
-            setTimeout(() => {
-                App.showToast(`Auto-selected drive: ${drives[0].name}`);
-                this.onLookup();
-            }, 500);
+            App.showToast(`Auto-selected drive: ${drives[0].name}`);
+            // REMOVED: Auto-lookup after short delay - user must manually click "Look Up Disc"
         }
     },
 

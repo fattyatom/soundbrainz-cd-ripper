@@ -99,6 +99,13 @@ const RipView = {
             return;
         }
 
+        // Ensure we're on the rip view - switch to it if not visible
+        const ripView = document.getElementById('view-rip');
+        if (ripView && !ripView.classList.contains('active')) {
+            // View is not active - switch to it
+            App.switchView('rip');
+        }
+
         // Map backend status to UI format
         const uiStatus = {
             phase: status.phase || "",
