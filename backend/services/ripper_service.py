@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import os
+import sys
 import re
 import shutil
 import subprocess
@@ -225,8 +226,14 @@ def start_rip(device: str, release: Optional[dict] = None, output_dir: Optional[
 
     with _rip_lock:
         if rip_state["active"]:
-            logger.warning("start_rip: A rip is already in progress, refusing to start new one")
-            return {"error": "A rip is already in progress"}
+            # Check if the thread is still alive
+            if _rip_thread and _rip_thread.is_alive():
+                logger.warning("start_rip: Previous thread still alive, cannot start new rip")
+                return {"error": "A rip is already in progress"}
+            else:
+                # Thread died but left active=True, clean it up
+                logger.warning("start_rip: Previous thread died but state not cleaned, resetting")
+                rip_state["active"] = False
 
         # Clear state and initialize
         rip_state.update({
@@ -332,7 +339,10 @@ def _rip_worker_with_cleanup(device: str, release: Optional[dict], output_dir: O
             rip_state["error"] = str(e)
     finally:
         logger.info("_rip_worker_with_cleanup: Remounting device to restore normal system behavior")
-        _remount_device(device)
+        try:
+            _remount_device(device)
+        except Exception as e:
+            logger.error("_rip_worker_with_cleanup: Failed to remount device: %s", str(e))
 
         logger.info("_rip_worker_with_cleanup: Worker finishing, setting active=False")
         with _rip_lock:
