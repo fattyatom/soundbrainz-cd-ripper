@@ -7,10 +7,12 @@ CONFIG_FILE = CONFIG_DIR / "config.json"
 DEFAULTS = {
     "output_dir": str(Path.home() / "Music"),
     "folder_pattern": "{artist}/{album}/{number:02d} - {title}.flac",
-    "preferred_language": "en",
+    "folder_pattern_multi_disc": "{artist}/{album}/CD{disc}/{number:02d} - {title}.flac",
+    "preferred_languages": ["en"],
     "preferred_country": "",
     "preferred_genre": "",
     "default_drive": "",
+    "rip_speed": "balanced",  # Options: accurate, balanced, fast
 }
 
 

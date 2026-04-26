@@ -45,31 +45,52 @@ def _detect_drives_macos() -> list[dict]:
             return drives
 
         current_drive = None
+        in_media_section = False  # Track if we're parsing Media: child lines
+
         for line in result.stdout.splitlines():
             stripped = line.strip()
             if not stripped or stripped.startswith("Disc Burning"):
+                continue
+
+            # Check for deeper indentation (child lines)
+            # system_profiler uses 6 spaces for properties and 10+ spaces for child properties
+            if line.startswith("          ") or line.startswith("\t\t"):
+                # This is a child line of the previous parent
+                if in_media_section and current_drive:
+                    # If we see any child line under Media:, a disc is present
+                    current_drive["has_disc"] = True
                 continue
 
             key, _, value = stripped.partition(":")
             key = key.strip()
             value = value.strip()
 
+            # Drive name headers have 4 spaces indentation
+            is_drive_header = line.startswith("    ") and not line.startswith("      ")
+
             if value:
                 # Key: Value line — update current drive attributes
                 if key == "Interconnect" and current_drive:
                     current_drive["drive_type"] = value.lower()
                 elif key == "Media" and current_drive:
-                    current_drive["has_disc"] = value.lower() != "no"
+                    # Old logic: current_drive["has_disc"] = value.lower() != "no"
+                    # New logic: We'll detect media in child lines instead
+                    pass  # Handled by child line detection above
             elif stripped.endswith(":") and not value:
-                # Drive name header line (e.g., "HL-DT-ST DVDRAM GP65NB60:")
-                if current_drive:
-                    drives.append(current_drive)
-                current_drive = {
-                    "device": "",
-                    "name": key,
-                    "has_disc": False,
-                    "drive_type": "unknown",
-                }
+                if is_drive_header:
+                    # This is a drive name header line (e.g., "HL-DT-ST DVDRAM GP65NB60:")
+                    if current_drive:
+                        drives.append(current_drive)
+                    current_drive = {
+                        "device": "",
+                        "name": key,
+                        "has_disc": False,
+                        "drive_type": "unknown",
+                    }
+                    in_media_section = False
+                elif key == "Media":
+                    # Mark that we're entering a Media section (property, not drive header)
+                    in_media_section = True
 
         if current_drive:
             drives.append(current_drive)
@@ -85,6 +106,7 @@ def _detect_drives_macos() -> list[dict]:
 
 def _resolve_macos_device_paths(drives: list[dict]) -> None:
     """Try to resolve /dev/diskN paths for detected optical drives."""
+    optical_device = None
     try:
         result = subprocess.run(
             ["diskutil", "list"],
@@ -92,13 +114,19 @@ def _resolve_macos_device_paths(drives: list[dict]) -> None:
         )
         for line in result.stdout.splitlines():
             # Look for lines like "/dev/disk2 (external, physical):"
-            if line.startswith("/dev/disk") and "optical" in line.lower():
+            if line.startswith("/dev/disk") and "external" in line:
                 device = line.split()[0].rstrip(":")
-                # Assign to first drive without a device path
+                # Convert to raw device (rdisk) for better CD reading compatibility
+                raw_device = device.replace("/dev/disk", "/dev/rdisk")
+                # Check next few lines for CD_partition_scheme to confirm it's optical
+                optical_device = raw_device
+            elif optical_device and "CD_partition_scheme" in line:
+                # This is definitely an optical drive
                 for drive in drives:
                     if not drive["device"]:
-                        drive["device"] = device
+                        drive["device"] = optical_device
                         break
+                optical_device = None  # Reset for next drive
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 

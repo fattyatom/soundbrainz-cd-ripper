@@ -30,7 +30,7 @@ const RipView = {
         }
     },
 
-    async startRip(device, release) {
+    async startRip(device, release, selectedTracks = null) {
         const container = document.getElementById("rip-container");
         container.innerHTML = `
             <h2 style="margin-bottom: 1rem;">Ripping: ${release ? release.album : 'Unknown Album'}</h2>
@@ -39,15 +39,51 @@ const RipView = {
         `;
 
         try {
-            await API.startRip({ device, release });
+            await API.startRip({ device, release, selectedTracks });
             this._startPolling();
+            App.showToast("Rip started successfully", "success");
         } catch (err) {
             App.showToast("Failed to start rip: " + err.message, "error");
+
+            // Show helpful error message for missing dependencies
+            if (err.message && err.message.includes("Missing dependencies")) {
+                App.showToast("Install missing tools: brew install cdparanoia ffmpeg", "error", 10000);
+            }
         }
     },
 
     startRipWithoutMetadata(device) {
         this.startRip(device, null);
+    },
+
+    resumePolling(savedStatus) {
+        // Restore UI from saved state
+        this._showProgress(savedStatus);
+
+        // Resume polling
+        this._startPolling();
+    },
+
+    _showProgress(status) {
+        const container = document.getElementById("rip-container");
+
+        container.innerHTML = `
+            <h2 style="margin-bottom: 1rem;">Ripping Progress</h2>
+            <div class="progress-section">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="rip-progress-fill"
+                         data-phase="${status.phase}"
+                         data-track="${status.track}"
+                         data-total="${status.total}"
+                         style="width: ${status.percent}">
+                    </div>
+                </div>
+                <p class="progress-text" id="rip-progress-text">${status.text}</p>
+            </div>
+            <div class="action-bar">
+                <button class="btn btn-secondary" onclick="App.switchView('drives')">Back to Drives</button>
+            </div>
+        `;
     },
 
     _startPolling() {
@@ -63,37 +99,55 @@ const RipView = {
     },
 
     async _pollStatus() {
+        // Add resilience to missing elements
+        const progressBar = document.getElementById("rip-progress-fill");
+        const progressText = document.getElementById("rip-progress-text");
+
+        // If elements don't exist (user navigated away), skip this poll
+        if (!progressBar || !progressText) {
+            return;
+        }
+
         try {
             const status = await API.getRipStatus();
-            const fill = document.getElementById("rip-progress-fill");
-            const text = document.getElementById("rip-progress-text");
 
-            if (!fill || !text) return;
+            // Update progress bar
+            progressBar.style.width = `${status.percent || 0}%`;
+            progressBar.dataset.phase = status.phase || "";
+            progressBar.dataset.track = status.track || "0";
+            progressBar.dataset.total = status.total_tracks || "0";
 
-            fill.style.width = `${status.percent || 0}%`;
-
+            // Update text based on phase
             if (status.phase === "ripping") {
-                text.textContent = `Ripping track ${status.track} of ${status.total_tracks} (${status.percent}%)`;
+                progressText.textContent = `Ripping track ${status.track} of ${status.total_tracks} (${status.percent}%)`;
             } else if (status.phase === "transcoding") {
-                text.textContent = `Transcoding to FLAC (${status.percent}%)`;
+                progressText.textContent = `Transcoding to FLAC (${status.percent}%)`;
             } else if (status.phase === "organizing") {
-                text.textContent = "Organizing files...";
+                progressText.textContent = "Organizing files...";
             } else if (status.phase === "done") {
-                text.textContent = "Complete!";
-                fill.style.width = "100%";
+                progressText.textContent = "Complete!";
+                progressBar.style.width = "100%";
                 this._stopPolling();
                 App.showToast("Rip complete!", "success");
-            } else if (status.error) {
-                text.textContent = `Error: ${status.error}`;
+            } else if (status.phase === "error") {
+                progressText.textContent = `Error: ${status.error || "Unknown error"}`;
                 this._stopPolling();
-                App.showToast(status.error, "error");
+                App.showToast(status.error || "Unknown error", "error");
+            } else if (status.phase === "starting") {
+                progressText.textContent = "Starting rip...";
             }
 
-            if (!status.active && status.phase !== "done") {
+            // Stop polling if rip is no longer active and not done
+            if (!status.active && status.phase !== "done" && status.phase !== "error") {
                 this._stopPolling();
             }
         } catch (err) {
-            // Silently retry on poll failures
+            console.error("Polling error:", err);
+            // Don't stop polling on transient errors, only on critical failures
+            if (err.message && err.message.includes("Failed to fetch")) {
+                this._stopPolling();
+                App.showToast("Connection lost - refresh to continue", "error");
+            }
         }
     },
 };

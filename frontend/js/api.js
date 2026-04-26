@@ -50,7 +50,8 @@ const API = {
 
     // Settings endpoints (Phase 4)
     getSettings() {
-        return this.get("/api/settings");
+        // Add cache-busting parameter
+        return this.get("/api/settings?_t=" + Date.now());
     },
 
     saveSettings(data) {

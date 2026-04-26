@@ -351,3 +351,61 @@ code {
     border-radius: 3px;
     font-size: 0.85rem;
 }
+
+/* Disc indicator for multi-disc sets */
+.disc-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 1rem 0;
+    padding: 0.75rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 8px;
+    color: white;
+}
+
+.disc-badge {
+    background: rgba(255, 255, 255, 0.2);
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-weight: bold;
+    font-size: 0.9rem;
+}
+
+.disc-total {
+    opacity: 0.9;
+    font-size: 0.85rem;
+}
+
+/* Priority indicators for MusicBrainz matching */
+.priority-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    border-radius: 6px;
+    color: white;
+    font-size: 0.85rem;
+    margin: 0.5rem 0;
+}
+
+.priority-star {
+    font-size: 1rem;
+}
+
+.priority-reasons {
+    font-weight: 500;
+}
+
+.format-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    background: rgba(102, 126, 234, 0.3);
+    border: 1px solid #667eea;
+    border-radius: 4px;
+    color: #a0aec0;
+    font-size: 0.75rem;
+    margin-left: 0.5rem;
+    margin-top: 0.25rem;
+}

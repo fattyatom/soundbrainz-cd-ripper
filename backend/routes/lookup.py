@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 
-from backend.services.musicbrainz_service import get_disc_id, lookup_disc
+from backend.config import load_config
+from backend.services.musicbrainz_service import get_disc_id, lookup_disc, _prioritize_releases
 
 lookup_bp = Blueprint("lookup", __name__)
 
@@ -24,6 +25,10 @@ def get_lookup():
 
     # Look up on MusicBrainz
     releases = lookup_disc(disc_info["disc_id"], toc=disc_info.get("toc"))
+
+    # Apply smart prioritization
+    user_preferences = load_config()
+    releases = _prioritize_releases(releases, user_preferences)
 
     return jsonify({
         "disc_id": disc_info["disc_id"],

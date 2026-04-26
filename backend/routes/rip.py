@@ -18,8 +18,15 @@ def post_rip():
 
     release = data.get("release")  # Optional MusicBrainz metadata
     output_dir = data.get("output_dir")
+    selected_tracks = data.get("selectedTracks")  # Optional list of track numbers to rip
 
-    status = start_rip(device, release=release, output_dir=output_dir)
+    # If no output_dir specified, use the configured default
+    if not output_dir:
+        from backend.config import load_config
+        config = load_config()
+        output_dir = config.get("output_dir")
+
+    status = start_rip(device, release=release, output_dir=output_dir, selected_tracks=selected_tracks)
     return jsonify(status)
 
 

@@ -34,6 +34,23 @@ def _find_cdparanoia() -> str:
     )
 
 
+def _unmount_device(device: str) -> None:
+    """Unmount the CD device before ripping to prevent resource busy errors."""
+    # Convert /dev/rdiskX -> /dev/diskX for diskutil
+    regular_device = device.replace('/dev/rdisk', '/dev/disk')
+    try:
+        subprocess.run(
+            ['diskutil', 'unmountDisk', regular_device],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False
+        )
+        logger.info("_unmount_device: Successfully unmounted %s", regular_device)
+    except Exception as e:
+        logger.warning("_unmount_device: Could not unmount disk: %s", str(e))
+
+
 # Lazy imports to avoid circular dependencies
 def _get_transcoder():
     from backend.services.transcoder_service import transcode_album
@@ -63,35 +80,47 @@ rip_state = {
 }
 
 _rip_lock = threading.Lock()
+_rip_thread = None  # Track thread to prevent multiple simultaneous rips
 
 
 def get_status() -> dict:
-    """Return a copy of the current rip state."""
-    return dict(rip_state)
+    """Return a copy of the current rip state (thread-safe)."""
+    with _rip_lock:
+        return dict(rip_state)
 
 
 def is_active() -> bool:
-    return rip_state["active"]
+    with _rip_lock:
+        return rip_state["active"]
 
 
-def start_rip(device: str, release: Optional[dict] = None, output_dir: Optional[str] = None) -> dict:
+def start_rip(device: str, release: Optional[dict] = None, output_dir: Optional[str] = None, selected_tracks: Optional[list[int]] = None) -> dict:
     """Start a rip job in a background thread.
 
     Args:
         device: CD drive device path (e.g., /dev/sr0)
         release: Optional MusicBrainz release metadata for tagging
         output_dir: Final output directory (from config). If None, uses temp dir only.
+        selected_tracks: Optional list of track numbers to rip. If None, rips all tracks.
 
     Returns:
         Current rip state dict.
     """
+    global _rip_thread
+
+    logger.info("start_rip: Starting rip for device %s", device)
+    logger.info("start_rip: Release: %s", release.get("album") if release else "None")
+    logger.info("start_rip: Output dir: %s", output_dir)
+
     with _rip_lock:
         if rip_state["active"]:
+            logger.warning("start_rip: A rip is already in progress, refusing to start new one")
             return {"error": "A rip is already in progress"}
 
+        # Clear state and initialize
         rip_state.update({
             "active": True,
-            "phase": "ripping",
+            "phase": "starting",
             "track": 0,
             "total_tracks": 0,
             "percent": 0,
@@ -99,16 +128,88 @@ def start_rip(device: str, release: Optional[dict] = None, output_dir: Optional[
             "output_dir": output_dir,
         })
 
-    thread = threading.Thread(
-        target=_rip_worker,
-        args=(device, release, output_dir),
-        daemon=True,
+    # Stop any existing thread
+    if _rip_thread and _rip_thread.is_alive():
+        logger.info("start_rip: Stopping existing thread")
+        _rip_thread.join(timeout=1.0)
+
+    # Create regular (non-daemon) thread to prevent premature termination
+    logger.info("start_rip: Creating new thread")
+    _rip_thread = threading.Thread(
+        target=_rip_worker_with_cleanup,
+        args=(device, release, output_dir, selected_tracks),
+        daemon=False,  # Keep thread alive
     )
-    thread.start()
-    return get_status()
+
+    logger.info("start_rip: Starting thread")
+    _rip_thread.start()
+    logger.info("start_rip: Thread started successfully")
+
+    status = get_status()
+    logger.info("start_rip: Returning status: %s", status)
+    return status
 
 
-def _rip_worker(device: str, release: Optional[dict], output_dir: Optional[str]) -> None:
+def _check_dependencies() -> None:
+    """Check if required tools are available and raise clear errors."""
+    logger.info("_check_dependencies: Starting dependency check")
+    try:
+        # Test cdparanoia
+        cmd = _find_cdparanoia()
+        logger.info("_check_dependencies: Found cdparanoia command: %s", cmd)
+        result = subprocess.run(
+            [cmd, "-V"],
+            capture_output=True,
+            timeout=5
+        )
+        logger.info("_check_dependencies: cdparanoia -V returned %d", result.returncode)
+        if result.returncode != 0:
+            raise RuntimeError(f"{cmd} not found or not working")
+
+        # Test ffmpeg
+        result = subprocess.run(
+            ["ffmpeg", "-version"],
+            capture_output=True,
+            timeout=5
+        )
+        logger.info("_check_dependencies: ffmpeg -version returned %d", result.returncode)
+        if result.returncode != 0:
+            raise RuntimeError("ffmpeg not found or not working")
+
+        logger.info("_check_dependencies: All dependencies OK")
+
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        logger.error("_check_dependencies: Dependency check failed: %s", str(e))
+        tools = []
+        if not shutil.which("cd-paranoia") and not shutil.which("cdparanoia"):
+            tools.append("cdparanoia")
+        if not shutil.which("ffmpeg"):
+            tools.append("ffmpeg")
+        raise RuntimeError(f"Missing dependencies: {', '.join(tools)}. Install with: brew install {' '.join(tools)}")
+
+
+def _rip_worker_with_cleanup(device: str, release: Optional[dict], output_dir: Optional[str], selected_tracks: Optional[list[int]] = None) -> None:
+    """Worker function with proper cleanup and exception handling."""
+    logger.info("_rip_worker_with_cleanup: Worker started")
+    try:
+        logger.info("_rip_worker_with_cleanup: Checking dependencies")
+        _check_dependencies()
+        logger.info("_rip_worker_with_cleanup: Dependencies OK, starting rip worker")
+        _rip_worker(device, release, output_dir, selected_tracks)
+        logger.info("_rip_worker_with_cleanup: Rip worker completed successfully")
+    except Exception as e:
+        logger.error("_rip_worker_with_cleanup: Exception occurred: %s", str(e))
+        logger.exception("_rip_worker_with_cleanup: Full exception traceback")
+        with _rip_lock:
+            rip_state["phase"] = "error"
+            rip_state["error"] = str(e)
+    finally:
+        logger.info("_rip_worker_with_cleanup: Worker finishing, setting active=False")
+        with _rip_lock:
+            rip_state["active"] = False
+
+
+def _rip_worker(device: str, release: Optional[dict], output_dir: Optional[str], selected_tracks: Optional[list[int]] = None) -> None:
     """Background worker that runs the full rip pipeline:
     1. Rip CD to WAV (cdparanoia)
     2. Transcode WAV to FLAC (ffmpeg)
@@ -117,10 +218,18 @@ def _rip_worker(device: str, release: Optional[dict], output_dir: Optional[str])
     temp_dir = tempfile.mkdtemp(prefix="soundbrainz_")
     flac_dir = tempfile.mkdtemp(prefix="soundbrainz_flac_")
     _moved_to_library = False
+
+    logger.info("Rip worker started for device: %s", device)
+    logger.info("Temp directory: %s", temp_dir)
+
     try:
         # Phase 1: Rip CD to WAV
-        rip_state["phase"] = "ripping"
-        wav_files = rip_disc(device, temp_dir, _update_rip_progress)
+        with _rip_lock:
+            rip_state["phase"] = "ripping"
+
+        logger.info("Starting CD rip with cdparanoia...")
+        wav_files = rip_disc(device, temp_dir, _update_rip_progress, selected_tracks)
+        logger.info("Completed ripping %d tracks", len(wav_files))
 
         # Phase 2: Download cover art if we have release metadata
         cover_art_path = None
@@ -131,8 +240,9 @@ def _rip_worker(device: str, release: Optional[dict], output_dir: Optional[str])
                 cover_art_path = cover_path
 
         # Phase 3: Transcode WAV to FLAC
-        rip_state["phase"] = "transcoding"
-        rip_state["percent"] = 0
+        with _rip_lock:
+            rip_state["phase"] = "transcoding"
+            rip_state["percent"] = 0
 
         track_metadata_list = _build_track_metadata(release)
         transcode_album = _get_transcoder()
@@ -143,8 +253,9 @@ def _rip_worker(device: str, release: Optional[dict], output_dir: Optional[str])
         )
 
         # Phase 4: Organize into library
-        rip_state["phase"] = "organizing"
-        rip_state["percent"] = 0
+        with _rip_lock:
+            rip_state["phase"] = "organizing"
+            rip_state["percent"] = 0
 
         final_dir = output_dir
         if not final_dir:
@@ -154,7 +265,15 @@ def _rip_worker(device: str, release: Optional[dict], output_dir: Optional[str])
         if final_dir and release:
             generate_path, ensure_directory = _get_library()
             config = _get_config()()
-            pattern = config.get("folder_pattern", "{artist}/{album}/{number:02d} - {title}.flac")
+
+            # Use multi-disc pattern if this is a multi-disc release
+            total_discs = release.get("total_discs", 1)
+            if total_discs > 1:
+                pattern = config.get("folder_pattern_multi_disc", "{artist}/{album}/CD{disc}/{number:02d} - {title}.flac")
+                logger.info("Using multi-disc pattern: %s", pattern)
+            else:
+                pattern = config.get("folder_pattern", "{artist}/{album}/{number:02d} - {title}.flac")
+                logger.info("Using single-disc pattern: %s", pattern)
 
             for i, flac_path in enumerate(flac_files):
                 track_meta = track_metadata_list[i] if i < len(track_metadata_list) else {}
@@ -175,21 +294,23 @@ def _rip_worker(device: str, release: Optional[dict], output_dir: Optional[str])
         else:
             # No library dir configured or no metadata — leave FLACs in flac_dir
             # Record the path so the caller can find the files
-            rip_state["output_dir"] = flac_dir
+            with _rip_lock:
+                rip_state["output_dir"] = flac_dir
             logger.info("No output dir configured, FLAC files at: %s", flac_dir)
 
         # Done
-        rip_state["phase"] = "done"
-        rip_state["percent"] = 100
+        with _rip_lock:
+            rip_state["phase"] = "done"
+            rip_state["percent"] = 100
         logger.info("Rip pipeline complete")
 
     except Exception as e:
+        with _rip_lock:
+            rip_state["phase"] = "error"
+            rip_state["error"] = str(e)
         logger.exception("Rip failed")
-        rip_state["phase"] = "error"
-        rip_state["error"] = str(e)
         shutil.rmtree(flac_dir, ignore_errors=True)
     finally:
-        rip_state["active"] = False
         # Clean up temp WAV directory
         shutil.rmtree(temp_dir, ignore_errors=True)
         # Clean up flac_dir only when files were moved to the library
@@ -199,17 +320,19 @@ def _rip_worker(device: str, release: Optional[dict], output_dir: Optional[str])
 
 
 def _update_rip_progress(track: int, total_tracks: int, percent: int) -> None:
-    """Callback for rip progress updates."""
-    rip_state["track"] = track
-    rip_state["total_tracks"] = total_tracks
-    rip_state["percent"] = percent
+    """Callback for rip progress updates (thread-safe)."""
+    with _rip_lock:
+        rip_state["track"] = track
+        rip_state["total_tracks"] = total_tracks
+        rip_state["percent"] = percent
 
 
 def _update_transcode_progress(track: int, total_tracks: int, percent: int) -> None:
-    """Callback for transcode progress updates."""
-    rip_state["track"] = track
-    rip_state["total_tracks"] = total_tracks
-    rip_state["percent"] = percent
+    """Callback for transcode progress updates (thread-safe)."""
+    with _rip_lock:
+        rip_state["track"] = track
+        rip_state["total_tracks"] = total_tracks
+        rip_state["percent"] = percent
 
 
 def _build_track_metadata(release: Optional[dict]) -> list[dict]:
@@ -222,6 +345,10 @@ def _build_track_metadata(release: Optional[dict]) -> list[dict]:
     year = release.get("year", "")
     total = len(release["tracks"])
 
+    # Include disc information for multi-disc releases
+    disc_number = release.get("disc_number", 1)
+    total_discs = release.get("total_discs", 1)
+
     metadata_list = []
     for track in release["tracks"]:
         metadata_list.append({
@@ -231,44 +358,69 @@ def _build_track_metadata(release: Optional[dict]) -> list[dict]:
             "title": track.get("title", "Unknown"),
             "number": track.get("number", 0),
             "track": f"{track.get('number', 0)}/{total}",
+            "disc": disc_number,
+            "total_discs": total_discs,
             "date": year,
             "genre": "",
         })
     return metadata_list
 
 
-def rip_disc(device: str, output_dir: str, progress_callback: Callable) -> list[str]:
-    """Rip all tracks from a CD using cdparanoia.
+def rip_disc(device: str, output_dir: str, progress_callback: Callable, selected_tracks: Optional[list[int]] = None) -> list[str]:
+    """Rip tracks from a CD using cdparanoia.
 
     Args:
         device: CD drive device path
         output_dir: Directory to write WAV files to
         progress_callback: Called with (track, total_tracks, percent)
+        selected_tracks: Optional list of track numbers to rip. If None, rips all tracks.
 
     Returns:
         List of output WAV file paths.
     """
+    logger.info("rip_disc: Starting rip for device %s to %s", device, output_dir)
+
     # First, get track count from cdparanoia -Q (query)
     total_tracks = _get_track_count(device)
     if total_tracks == 0:
         raise RuntimeError("No audio tracks found on disc")
 
-    progress_callback(0, total_tracks, 0)
+    logger.info("rip_disc: Found %d tracks on disc", total_tracks)
+
+    # Determine which tracks to rip
+    if selected_tracks:
+        # Validate and filter selected tracks
+        selected_tracks = [t for t in selected_tracks if 1 <= t <= total_tracks]
+        if not selected_tracks:
+            raise RuntimeError("No valid tracks selected")
+        tracks_to_rip = sorted(selected_tracks)
+        logger.info("rip_disc: Ripping %d selected tracks: %s", len(tracks_to_rip), tracks_to_rip)
+    else:
+        tracks_to_rip = list(range(1, total_tracks + 1))
+        logger.info("rip_disc: Ripping all %d tracks", total_tracks)
+
+    progress_callback(0, len(tracks_to_rip), 0)
 
     output_files = []
-    for track_num in range(1, total_tracks + 1):
+    for i, track_num in enumerate(tracks_to_rip):
+        logger.info("rip_disc: Ripping track %d/%d (track %d on disc)", i + 1, len(tracks_to_rip), track_num)
         output_path = Path(output_dir) / f"track{track_num:02d}.wav"
         _rip_single_track(device, track_num, str(output_path))
         output_files.append(str(output_path))
 
-        pct = int((track_num / total_tracks) * 100)
-        progress_callback(track_num, total_tracks, pct)
+        pct = int(((i + 1) / len(tracks_to_rip)) * 100)
+        progress_callback(i + 1, len(tracks_to_rip), pct)
+        logger.info("rip_disc: Completed track %d/%d (%d%%)", i + 1, len(tracks_to_rip), pct)
 
+    logger.info("rip_disc: Completed all %d tracks", len(output_files))
     return output_files
 
 
 def _get_track_count(device: str) -> int:
     """Query the disc for number of audio tracks."""
+    # Ensure device is unmounted first
+    _unmount_device(device)
+
     cmd = _find_cdparanoia()
     try:
         result = subprocess.run(
@@ -298,14 +450,39 @@ def _parse_track_count(stderr: str) -> int:
 
 
 def _rip_single_track(device: str, track_num: int, output_path: str) -> None:
-    """Rip a single track using cdparanoia or cd-paranoia."""
+    """Rip a single track using cdparanoia with proper error correction."""
     cmd = _find_cdparanoia()
+    logger.info("_rip_single_track: Ripping track %d with %s", track_num, cmd)
+
+    # Ensure device is unmounted first (prevents timeouts)
+    _unmount_device(device)
+
     try:
+        # cdparanoia automatically handles error correction, jitter, etc.
+        # Syntax: cdparanoia -d device track_number output_file
         result = subprocess.run(
             [cmd, "-d", device, str(track_num), output_path],
-            capture_output=True, text=True, timeout=600  # 10 min timeout per track
+            capture_output=True,
+            text=True,
+            timeout=600  # 10 minutes per track
         )
+
         if result.returncode != 0:
-            raise RuntimeError(f"{cmd} failed on track {track_num}: {result.stderr[:200]}")
+            logger.error("_rip_single_track: cdparanoia failed (exit %d)", result.returncode)
+            logger.error("_rip_single_track: stderr: %s", result.stderr[:500])
+            raise RuntimeError(f"cdparanoia failed on track {track_num}: {result.stderr[:200]}")
+
+        # Validate output file
+        if not os.path.exists(output_path):
+            raise RuntimeError(f"cdparanoia did not create output file for track {track_num}")
+
+        file_size = os.path.getsize(output_path)
+        if file_size == 0:
+            raise RuntimeError(f"cdparanoia created empty file for track {track_num}")
+
+        logger.info("_rip_single_track: Successfully ripped track %d to %s (%d bytes)",
+                    track_num, output_path, file_size)
+
     except subprocess.TimeoutExpired:
+        logger.error("_rip_single_track: cdparanoia timed out ripping track %d", track_num)
         raise RuntimeError(f"Timed out ripping track {track_num}")

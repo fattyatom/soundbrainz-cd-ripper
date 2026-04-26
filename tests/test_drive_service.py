@@ -11,22 +11,26 @@ from backend.services.drive_service import (
 
 SAMPLE_SYSTEM_PROFILER_OUTPUT = """Disc Burning:
 
-      HL-DT-ST DVDRAM GP65NB60:
+    HL-DT-ST DVDRAM GP65NB60:
 
-          Firmware Revision: RI06
-          Interconnect:      USB
-          Burn Support:      Yes (Apple Shipping Drive)
-          Profile Path:      Current
-          Media:             Yes
+      Firmware Revision: RI06
+      Interconnect: USB
+      Burn Support: Yes (Apple Shipping Drive)
+      Profile Path: Current
+      Media:
+          Type: CD-ROM
+          Blank: No
+          Erasable: No
+          Overwritable: No
+          Appendable: No
 """
 
 SAMPLE_SYSTEM_PROFILER_NO_DISC = """Disc Burning:
 
-      HL-DT-ST DVDRAM GP65NB60:
+    HL-DT-ST DVDRAM GP65NB60:
 
-          Firmware Revision: RI06
-          Interconnect:      USB
-          Media:             No
+      Firmware Revision: RI06
+      Interconnect: USB
 """
 
 
