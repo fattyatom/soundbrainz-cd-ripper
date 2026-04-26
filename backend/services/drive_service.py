@@ -24,7 +24,10 @@ def eject_disc(device: str) -> bool:
     """Eject disc from the given device. Returns True on success."""
     try:
         if sys.platform == "darwin":
-            subprocess.run(["drutil", "eject"], check=True, capture_output=True)
+            # Use diskutil to eject the specific device
+            # Convert /dev/rdiskX -> /dev/diskX for diskutil
+            regular_device = device.replace('/dev/rdisk', '/dev/disk')
+            subprocess.run(["diskutil", "eject", regular_device], check=True, capture_output=True)
         else:
             subprocess.run(["eject", device], check=True, capture_output=True)
         return True

@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 import re
@@ -51,6 +52,40 @@ def _unmount_device(device: str) -> None:
         logger.warning("_unmount_device: Could not unmount disk: %s", str(e))
 
 
+def _remount_device(device: str) -> None:
+    """Remount the CD device after ripping to restore normal system behavior."""
+    if sys.platform != "darwin":
+        # Only macOS needs remounting - Linux systems handle this automatically
+        return
+
+    # Convert /dev/rdiskX -> /dev/diskX for diskutil
+    regular_device = device.replace('/dev/rdisk', '/dev/disk')
+    try:
+        # Attempt to remount the disk to restore normal system behavior
+        subprocess.run(
+            ['diskutil', 'mountDisk', regular_device],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False
+        )
+        logger.info("_remount_device: Successfully remounted %s", regular_device)
+    except Exception as e:
+        logger.warning("_remount_device: Could not remount disk: %s", str(e))
+        # Try alternative approach - force the disk to be recognized again
+        try:
+            subprocess.run(
+                ['diskutil', 'resetUserPermissions', regular_device],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False
+            )
+            logger.info("_remount_device: Reset permissions for %s", regular_device)
+        except Exception as e2:
+            logger.warning("_remount_device: Could not reset permissions: %s", str(e2))
+
+
 # Lazy imports to avoid circular dependencies
 def _get_transcoder():
     from backend.services.transcoder_service import transcode_album
@@ -67,6 +102,82 @@ def _get_library():
 def _get_config():
     from backend.config import load_config
     return load_config
+
+
+def _calculate_sha256(file_path: str) -> str:
+    """Calculate SHA-256 checksum of a file.
+
+    Args:
+        file_path: Path to the file to checksum
+
+    Returns:
+        Hexadecimal SHA-256 checksum string
+    """
+    sha256_hash = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        for byte_block in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(byte_block)
+    return sha256_hash.hexdigest()
+
+
+def _get_cdparanoia_flags(quality_preset: str) -> list:
+    """Generate cdparanoia flags based on quality preset.
+
+    Args:
+        quality_preset: One of "audiophile", "portable", "archive", "custom"
+
+    Returns:
+        List of cdparanoia command-line flags
+    """
+    flags = ["-v"]  # Always verbose for diagnostics
+
+    if quality_preset == "audiophile":
+        # Slowest speed, maximum error recovery
+        flags.extend(["-S", "1", "-X", "-z"])  # 1x speed, abort on skip, never skip
+    elif quality_preset == "archive":
+        # Medium speed, high error recovery
+        flags.extend(["-S", "8", "-X", "-z"])  # 8x speed, abort on skip, never skip
+    # portable uses defaults (no additional flags)
+
+    return flags
+
+
+def _check_cdparanoia_warnings(stderr: str) -> None:
+    """Parse cdparanoia stderr for error indicators and log warnings.
+
+    Even if cdparanoia returns exit code 0, it may have encountered errors
+    that it partially recovered from. This function detects and logs those.
+
+    Args:
+        stderr: Standard error output from cdparanoia
+
+    Raises:
+        RuntimeError: If abort_on_skip is enabled and errors are detected
+    """
+    error_indicators = [";-(", "8-X", ":-0", ":-("]
+    warning_indicators = ["8-|", ":-/", ":-P", "V"]
+
+    errors_found = []
+    warnings_found = []
+
+    for line in stderr.split('\n'):
+        for indicator in error_indicators:
+            if indicator in line:
+                errors_found.append(line.strip())
+        for indicator in warning_indicators:
+            if indicator in line:
+                warnings_found.append(line.strip())
+
+    if warnings_found:
+        logger.warning("_check_cdparanoia_warnings: Detected %d warnings:", len(warnings_found))
+        for warning in warnings_found[:10]:  # Limit to first 10
+            logger.warning("_check_cdparanoia_warnings: %s", warning)
+
+    if errors_found:
+        logger.error("_check_cdparanoia_warnings: Detected %d errors:", len(errors_found))
+        for error in errors_found[:10]:  # Limit to first 10
+            logger.error("_check_cdparanoia_warnings: %s", error)
+        raise RuntimeError(f"cdparanoia detected {len(errors_found)} unrecoverable errors")
 
 # Global rip state — single rip at a time
 rip_state = {
@@ -197,6 +308,22 @@ def _rip_worker_with_cleanup(device: str, release: Optional[dict], output_dir: O
         logger.info("_rip_worker_with_cleanup: Dependencies OK, starting rip worker")
         _rip_worker(device, release, output_dir, selected_tracks)
         logger.info("_rip_worker_with_cleanup: Rip worker completed successfully")
+
+        # Auto-eject disc after successful rip if configured
+        try:
+            config = _get_config()()
+            if config.get("auto_eject", True):
+                logger.info("_rip_worker_with_cleanup: Auto-eject enabled, ejecting disc")
+                from backend.services.drive_service import eject_disc
+                if eject_disc(device):
+                    logger.info("_rip_worker_with_cleanup: Successfully ejected disc")
+                else:
+                    logger.warning("_rip_worker_with_cleanup: Failed to eject disc")
+            else:
+                logger.info("_rip_worker_with_cleanup: Auto-eject disabled in config")
+        except Exception as e:
+            logger.warning("_rip_worker_with_cleanup: Error during auto-eject: %s", str(e))
+
     except Exception as e:
         logger.error("_rip_worker_with_cleanup: Exception occurred: %s", str(e))
         logger.exception("_rip_worker_with_cleanup: Full exception traceback")
@@ -204,6 +331,9 @@ def _rip_worker_with_cleanup(device: str, release: Optional[dict], output_dir: O
             rip_state["phase"] = "error"
             rip_state["error"] = str(e)
     finally:
+        logger.info("_rip_worker_with_cleanup: Remounting device to restore normal system behavior")
+        _remount_device(device)
+
         logger.info("_rip_worker_with_cleanup: Worker finishing, setting active=False")
         with _rip_lock:
             rip_state["active"] = False
@@ -231,6 +361,19 @@ def _rip_worker(device: str, release: Optional[dict], output_dir: Optional[str],
         wav_files = rip_disc(device, temp_dir, _update_rip_progress, selected_tracks)
         logger.info("Completed ripping %d tracks", len(wav_files))
 
+        # Generate checksum file if checksums were calculated
+        with _rip_lock:
+            checksums = rip_state.get("checksums", {})
+
+        if checksums:
+            checksum_file = os.path.join(temp_dir, "checksums.txt")
+            with open(checksum_file, "w") as f:
+                f.write(f"# SHA-256 checksums for ripped tracks\n")
+                f.write(f"# Generated: {__import__('datetime').datetime.now().isoformat()}\n")
+                for track_num, checksum in sorted(checksums.items()):
+                    f.write(f"Track {track_num}: {checksum}\n")
+            logger.info("Wrote checksums to %s", checksum_file)
+
         # Phase 2: Download cover art if we have release metadata
         cover_art_path = None
         if release and release.get("mbid"):
@@ -247,9 +390,11 @@ def _rip_worker(device: str, release: Optional[dict], output_dir: Optional[str],
         # Load audio format configuration
         config = _get_config()()
         audio_format = config.get("audio_format", "aiff")
-        flac_compression = config.get("flac_compression_level", 0)
+        flac_compression = config.get("flac_compression_level", 5)
 
         track_metadata_list = _build_track_metadata(release)
+
+        # Transcode all formats (FLAC, AIFF, WAV) to ensure metadata and cover art are embedded
         transcode_album = _get_transcoder()
         output_files = transcode_album(
             temp_dir, flac_dir, track_metadata_list,
@@ -463,14 +608,20 @@ def _rip_single_track(device: str, track_num: int, output_path: str) -> None:
     cmd = _find_cdparanoia()
     logger.info("_rip_single_track: Ripping track %d with %s", track_num, cmd)
 
+    # Get quality preset for flag selection
+    config = _get_config()()
+    quality_preset = config.get("quality_preset", "audiophile")
+    flags = _get_cdparanoia_flags(quality_preset)
+    logger.info("_rip_single_track: Using quality preset '%s' with flags: %s", quality_preset, flags)
+
     # Ensure device is unmounted first (prevents timeouts)
     _unmount_device(device)
 
     try:
-        # cdparanoia automatically handles error correction, jitter, etc.
-        # Syntax: cdparanoia -d device track_number output_file
+        # Build command with quality-aware flags
+        # Syntax: cdparanoia [flags] -d device track_number output_file
         result = subprocess.run(
-            [cmd, "-d", device, str(track_num), output_path],
+            [cmd] + flags + ["-d", device, str(track_num), output_path],
             capture_output=True,
             text=True,
             timeout=600  # 10 minutes per track
@@ -481,6 +632,10 @@ def _rip_single_track(device: str, track_num: int, output_path: str) -> None:
             logger.error("_rip_single_track: stderr: %s", result.stderr[:500])
             raise RuntimeError(f"cdparanoia failed on track {track_num}: {result.stderr[:200]}")
 
+        # Check for warnings even on successful rips
+        if result.stderr:
+            _check_cdparanoia_warnings(result.stderr)
+
         # Validate output file
         if not os.path.exists(output_path):
             raise RuntimeError(f"cdparanoia did not create output file for track {track_num}")
@@ -488,6 +643,16 @@ def _rip_single_track(device: str, track_num: int, output_path: str) -> None:
         file_size = os.path.getsize(output_path)
         if file_size == 0:
             raise RuntimeError(f"cdparanoia created empty file for track {track_num}")
+
+        # Calculate SHA-256 checksum for integrity verification
+        checksum = _calculate_sha256(output_path)
+        logger.info("_rip_single_track: SHA-256 checksum for track %d: %s", track_num, checksum)
+
+        # Store checksum in rip_state for later file generation
+        with _rip_lock:
+            if "checksums" not in rip_state:
+                rip_state["checksums"] = {}
+            rip_state["checksums"][track_num] = checksum
 
         logger.info("_rip_single_track: Successfully ripped track %d to %s (%d bytes)",
                     track_num, output_path, file_size)

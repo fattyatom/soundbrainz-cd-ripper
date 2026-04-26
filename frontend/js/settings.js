@@ -15,6 +15,7 @@ const SettingsView = {
         audio_format: "aiff",
         flac_compression_level: 0,
         quality_preset: "audiophile",
+        auto_eject: true,
     },
 
     async render() {
@@ -41,6 +42,7 @@ const SettingsView = {
             audio_format: settings.audio_format || this.DEFAULTS.audio_format,
             flac_compression_level: settings.flac_compression_level || this.DEFAULTS.flac_compression_level,
             quality_preset: settings.quality_preset || this.DEFAULTS.quality_preset,
+            auto_eject: settings.auto_eject !== undefined ? settings.auto_eject : this.DEFAULTS.auto_eject,
         };
 
         const languages = displaySettings.preferred_languages.join(', ');
@@ -83,6 +85,9 @@ const SettingsView = {
                             <button type="button" data-preset="archive" class="preset-btn ${displaySettings.quality_preset === 'archive' ? 'active' : ''}">Archive</button>
                             <button type="button" data-preset="custom" class="preset-btn ${displaySettings.quality_preset === 'custom' ? 'active' : ''}">Custom</button>
                         </div>
+                        <div id="preset-description" class="preset-description" style="padding: 0.5rem; background-color: #f8f9fa; border-left: 4px solid #007bff; border-radius: 4px; margin-top: 0.5rem; font-size: 0.9em; line-height: 1.4;">
+                            ${this._getPresetDescription(displaySettings.quality_preset)}
+                        </div>
                     </div>
 
                     <!-- Audio Format Selection -->
@@ -108,6 +113,18 @@ const SettingsView = {
                     <!-- Format Info Display -->
                     <div id="format-description" class="format-description" style="padding: 0.5rem; background-color: #f8f9fa; border-left: 4px solid #007bff; border-radius: 4px; margin-top: 0.5rem; font-size: 0.9em; line-height: 1.4;">
                         ${this._getFormatDescription(displaySettings.audio_format)}
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label style="font-weight: bold; margin-bottom: 0.5rem; display: block;">Behavior</label>
+
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                            <input type="checkbox" id="auto-eject" name="auto_eject" ${displaySettings.auto_eject ? 'checked' : ''} style="margin: 0;">
+                            <span>Automatically eject disc after successful rip</span>
+                        </label>
+                        <p class="form-hint">When enabled, the CD will be automatically ejected after ripping completes successfully</p>
                     </div>
                 </div>
 
@@ -188,9 +205,21 @@ const SettingsView = {
 
     _applyQualityPreset(preset) {
         const settings = {
-            audiophile: { format: 'aiff', flac_level: 0 },
-            portable: { format: 'flac', flac_level: 5 },
-            archive: { format: 'flac', flac_level: 8 }
+            audiophile: {
+                format: 'aiff',
+                flac_level: 5,
+                description: 'Slowest, Most Accurate, Uncompressed. 1x rip speed, maximum error recovery, uncompressed AIFF. Best for damaged or rare discs. Includes SHA-256 checksums.'
+            },
+            portable: {
+                format: 'flac',
+                flac_level: 5,
+                description: 'Fastest, Compressed. Maximum rip speed, standard error correction, FLAC compressed. Good for common discs. Includes SHA-256 checksums.'
+            },
+            archive: {
+                format: 'flac',
+                flac_level: 8,
+                description: 'Balanced, Compressed. 8x rip speed, high error recovery, FLAC compressed with high compression. Good balance of speed and accuracy. Includes SHA-256 checksums.'
+            }
         };
 
         const config = settings[preset];
@@ -215,6 +244,21 @@ const SettingsView = {
         // Update format description
         const formatDesc = document.getElementById('format-description');
         formatDesc.innerHTML = this._getFormatDescription(config.format);
+
+        // Update preset description
+        const presetDesc = document.getElementById('preset-description');
+        presetDesc.innerHTML = this._getPresetDescription(preset);
+    },
+
+    _getPresetDescription(preset) {
+        const descriptions = {
+            audiophile: '<strong>Audiophile (Slowest, Most Accurate, Uncompressed):</strong> 1x rip speed, maximum error recovery, uncompressed AIFF. Best for damaged or rare discs. Includes SHA-256 checksums.',
+            portable: '<strong>Portable (Fastest, Compressed):</strong> Maximum rip speed, standard error correction, FLAC compressed. Good for common discs. Includes SHA-256 checksums.',
+            archive: '<strong>Archive (Balanced, Compressed):</strong> 8x rip speed, high error recovery, FLAC compressed with high compression. Good balance of speed and accuracy. Includes SHA-256 checksums.',
+            custom: '<strong>Custom:</strong> Configure all settings manually according to your preferences.'
+        };
+
+        return descriptions[preset] || descriptions['custom'];
     },
 
     _getCompressionDescription(level) {
@@ -253,6 +297,7 @@ const SettingsView = {
             audio_format: document.getElementById("audio-format").value,
             flac_compression_level: parseInt(document.getElementById("flac-compression").value),
             quality_preset: document.querySelector(".preset-btn.active")?.dataset.preset || "custom",
+            auto_eject: document.getElementById("auto-eject").checked,
         };
 
         try {

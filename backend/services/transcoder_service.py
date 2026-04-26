@@ -37,10 +37,14 @@ def transcode_audio(input_path: str, output_path: str,
 
 def _transcode_to_flac(input_path: str, output_path: str,
                       metadata: Optional[dict], compression_level: int) -> str:
-    """Transcode to FLAC with configurable compression."""
+    """Transcode to FLAC with configurable compression and optimized parameters for dynamic content."""
     cmd = [
         "ffmpeg", "-y",
         "-i", input_path,
+        "-bufsize", "2M",  # Larger buffer for dynamic content
+        "-ar", "44100",    # Explicit sample rate
+        "-ac", "2",        # Explicit channels (stereo)
+        "-q:a", "0",       # Highest quality
         "-c:a", "flac",
         "-compression_level", str(compression_level),
     ]
@@ -64,8 +68,9 @@ def _transcode_to_flac(input_path: str, output_path: str,
     cmd.append(output_path)
 
     try:
+        # Increased timeout for slower, higher-quality encoding (5 minutes instead of 2)
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=120
+            cmd, capture_output=True, text=True, timeout=300
         )
         if result.returncode != 0:
             raise RuntimeError(f"ffmpeg failed: {result.stderr[:300]}")
@@ -194,6 +199,86 @@ def embed_cover_art_flac(flac_path: str, image_path: str) -> bool:
         return False
 
 
+def embed_cover_art_aiff(aiff_path: str, image_path: str) -> bool:
+    """Embed cover art into an AIFF file using ID3v2 tags.
+
+    Args:
+        aiff_path: Path to the AIFF file
+        image_path: Path to the cover art image file
+
+    Returns:
+        True if successful, False otherwise.
+    """
+    try:
+        temp_output = aiff_path + ".tmp.aiff"
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", aiff_path,
+                "-i", image_path,
+                "-map", "0:a",
+                "-map", "1",
+                "-c", "copy",
+                "-id3v2_version", "3",
+                "-metadata:s:v", "title=Album cover",
+                "-metadata:s:v", "comment=Cover (front)",
+                "-disposition:v", "attached_pic",
+                temp_output,
+            ],
+            capture_output=True, text=True, timeout=60
+        )
+        if result.returncode == 0:
+            Path(temp_output).replace(aiff_path)
+            return True
+        else:
+            Path(temp_output).unlink(missing_ok=True)
+            logger.warning("ffmpeg AIFF cover art embedding failed: %s", result.stderr[:200])
+            return False
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        logger.warning("Failed to embed cover art in AIFF: %s", e)
+        return False
+
+
+def embed_cover_art_wav(wav_path: str, image_path: str) -> bool:
+    """Embed cover art into a WAV file using ID3v2 tags.
+
+    Args:
+        wav_path: Path to the WAV file
+        image_path: Path to the cover art image file
+
+    Returns:
+        True if successful, False otherwise.
+    """
+    try:
+        temp_output = wav_path + ".tmp.wav"
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", wav_path,
+                "-i", image_path,
+                "-map", "0:a",
+                "-map", "1",
+                "-c", "copy",
+                "-id3v2_version", "3",
+                "-metadata:s:v", "title=Album cover",
+                "-metadata:s:v", "comment=Cover (front)",
+                "-disposition:v", "attached_pic",
+                temp_output,
+            ],
+            capture_output=True, text=True, timeout=60
+        )
+        if result.returncode == 0:
+            Path(temp_output).replace(wav_path)
+            return True
+        else:
+            Path(temp_output).unlink(missing_ok=True)
+            logger.warning("ffmpeg WAV cover art embedding failed: %s", result.stderr[:200])
+            return False
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        logger.warning("Failed to embed cover art in WAV: %s", e)
+        return False
+
+
 def transcode_album(
     wav_dir: str,
     output_dir: str,
@@ -230,11 +315,14 @@ def transcode_album(
         transcode_audio(str(wav_file), str(output_path), audio_format,
                        metadata, flac_compression_level)
 
-        # Embed cover art if available (only FLAC supports embedded cover art)
+        # Embed cover art if available (all formats support embedded cover art)
         if cover_art_path and Path(cover_art_path).exists():
             if audio_format == "flac":
                 embed_cover_art_flac(str(output_path), cover_art_path)
-            # For AIFF and WAV, cover art will be placed separately in the album folder
+            elif audio_format == "aiff":
+                embed_cover_art_aiff(str(output_path), cover_art_path)
+            elif audio_format == "wav":
+                embed_cover_art_wav(str(output_path), cover_art_path)
 
         output_files.append(str(output_path))
 
