@@ -60,6 +60,10 @@ def _transcode_to_flac(input_path: str, output_path: str,
             "genre": "genre",
             "album_artist": "album_artist",
         }
+        # Only add disc metadata for multi-disc releases
+        if metadata.get("total_discs", 1) > 1:
+            tag_map["disc"] = "disc"
+            tag_map["total_discs"] = "disctotal"
         for key, ffmpeg_key in tag_map.items():
             value = metadata.get(key)
             if value:
@@ -104,6 +108,12 @@ def _transcode_to_aiff(input_path: str, output_path: str, metadata: Optional[dic
         cmd.extend(["-metadata", f"track={metadata.get('track', '')}"])
         cmd.extend(["-metadata", f"date={metadata.get('date', '')}"])
         cmd.extend(["-metadata", f"genre={metadata.get('genre', '')}"])
+        # Add disc number metadata only for multi-disc releases
+        if metadata.get("total_discs", 1) > 1:
+            if metadata.get("disc"):
+                cmd.extend(["-metadata", f"disc={metadata.get('disc', '1')}"])
+            if metadata.get("total_discs"):
+                cmd.extend(["-metadata", f"disctotal={metadata.get('total_discs', '1')}"])
 
     cmd.append(output_path)
 
@@ -143,6 +153,12 @@ def _transcode_to_wav(input_path: str, output_path: str, metadata: Optional[dict
         cmd.extend(["-metadata", f"track={metadata.get('track', '')}"])
         cmd.extend(["-metadata", f"date={metadata.get('date', '')}"])
         cmd.extend(["-metadata", f"genre={metadata.get('genre', '')}"])
+        # Add disc number metadata only for multi-disc releases
+        if metadata.get("total_discs", 1) > 1:
+            if metadata.get("disc"):
+                cmd.extend(["-metadata", f"disc={metadata.get('disc', '1')}"])
+            if metadata.get("total_discs"):
+                cmd.extend(["-metadata", f"disctotal={metadata.get('total_discs', '1')}"])
 
     cmd.append(output_path)
 
