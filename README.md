@@ -42,6 +42,28 @@ python run.py
 
 Open http://localhost:5000 in your browser.
 
+## Adding Cover Art to Existing Files
+
+If you have previously ripped files without cover art, you can add cover art to them using the `add_covers.py` script:
+
+```bash
+source venv/bin/activate
+python add_covers.py '/path/to/albums' '/path/to/more/albums'
+```
+
+The script will:
+- Recursively scan directories for audio files (FLAC, AIFF, WAV)
+- Find cover art images (cover.jpg, cover.jpeg, cover.png, folder.jpg, front.jpg)
+- Embed cover art into each audio file while preserving all metadata
+- Work for multi-disc albums (CD1, CD2, etc.)
+
+**Example:**
+```bash
+python add_covers.py '/Volumes/Music/02 CD Rip/久石譲' '/Volumes/Music/02 CD Rip/髙見優・吉川慶'
+```
+
+The script uses the same cover art embedding approach as the main ripper, ensuring metadata preservation and compatibility across all formats.
+
 ## API Endpoints
 
 | Method | Endpoint | Description |
