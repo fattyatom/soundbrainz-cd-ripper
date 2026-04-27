@@ -225,10 +225,16 @@ def format_release(release: dict, disc_id: str, physical_track_details: list = N
     mbid = release.get("id", "")
 
     # Artist credit
-    artist = _extract_artist_credit(release.get("artist-credit", []))
+    artist_credit_list = release.get("artist-credit")
+    if not artist_credit_list:
+        logger.debug("Release %s has no artist-credit or it's None/empty", mbid)
+    artist = _extract_artist_credit(artist_credit_list or [])
 
     # Album title
     album = release.get("title", "Unknown Album")
+    if not album or album.strip() == "":
+        logger.debug("Release %s has empty album title, using 'Unknown Album'", mbid)
+        album = "Unknown Album"
 
     # Year from date
     date = release.get("date", "")
@@ -259,6 +265,10 @@ def format_release(release: dict, disc_id: str, physical_track_details: list = N
 
     # Cover art URL (from Cover Art Archive)
     cover_art_url = f"https://coverartarchive.org/release/{mbid}/front-500" if mbid else ""
+
+    # Log the extracted release data for debugging
+    logger.debug("format_release for %s: artist='%s', album='%s', tracks=%d, disc_number=%s, total_discs=%d",
+                 mbid, artist, album, len(tracks), disc_number, total_discs)
 
     return {
         "mbid": mbid,
@@ -337,6 +347,11 @@ def _calculate_track_similarity(physical_tracks: list, medium_tracks: list) -> f
 
 def _extract_artist_credit(credit_list: list) -> str:
     """Build a combined artist string from MusicBrainz artist-credit list."""
+    # Handle None or missing credit_list
+    if not credit_list:
+        logger.debug("artist-credit is None or empty, returning 'Unknown Artist'")
+        return "Unknown Artist"
+
     parts = []
     for item in credit_list:
         if isinstance(item, dict) and "artist" in item:

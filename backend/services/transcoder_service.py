@@ -95,12 +95,9 @@ def _transcode_to_aiff(input_path: str, output_path: str, metadata: Optional[dic
         "-ac", "2",  # Stereo
     ]
 
-    # Add ID3v2 tags for AIFF (required for metadata)
-    cmd.extend(["-write_id3v2", "1"])  # Enable ID3v2 tags
-    cmd.extend(["-id3v2_version", "3"])  # Use ID3v2.3 (most compatible)
-
     # Add metadata tags (only if they have actual values)
     if metadata:
+        logger.debug("Processing metadata for AIFF: %s", metadata)
         # Only add metadata fields that have non-empty values
         # ffmpeg ignores empty metadata values like "-metadata artist="
         if metadata.get('title'):
@@ -131,6 +128,9 @@ def _transcode_to_aiff(input_path: str, output_path: str, metadata: Optional[dic
             if metadata.get("total_discs"):
                 cmd.extend(["-metadata", f"disctotal={metadata.get('total_discs')}"])
 
+    # Add ID3v2 tags for AIFF (required for metadata) - must come after metadata but before output
+    cmd.extend(["-write_id3v2", "1"])  # Enable ID3v2 tags
+    cmd.extend(["-id3v2_version", "3"])  # Use ID3v2.3 (most compatible)
     cmd.append(output_path)
 
     try:
@@ -156,12 +156,9 @@ def _transcode_to_wav(input_path: str, output_path: str, metadata: Optional[dict
         "-ac", "2",  # Stereo
     ]
 
-    # Add ID3v2 tags for WAV (required for metadata)
-    cmd.extend(["-write_id3v2", "1"])  # Enable ID3v2 tags
-    cmd.extend(["-id3v2_version", "3"])  # Use ID3v2.3 (most compatible)
-
     # Add metadata tags (WAV has limited metadata support, but we can try)
     if metadata:
+        logger.debug("Processing metadata for WAV: %s", metadata)
         # Only add metadata fields that have non-empty values
         # ffmpeg ignores empty metadata values like "-metadata artist="
         if metadata.get('title'):
@@ -185,6 +182,9 @@ def _transcode_to_wav(input_path: str, output_path: str, metadata: Optional[dict
             if metadata.get("total_discs"):
                 cmd.extend(["-metadata", f"disctotal={metadata.get('total_discs')}"])
 
+    # Add ID3v2 tags for WAV (required for metadata) - must come after metadata but before output
+    cmd.extend(["-write_id3v2", "1"])  # Enable ID3v2 tags
+    cmd.extend(["-id3v2_version", "3"])  # Use ID3v2.3 (most compatible)
     cmd.append(output_path)
 
     try:
@@ -193,6 +193,8 @@ def _transcode_to_wav(input_path: str, output_path: str, metadata: Optional[dict
         )
         if result.returncode != 0:
             raise RuntimeError(f"ffmpeg failed: {result.stderr[:300]}")
+        if result.stderr:
+            logger.debug("ffmpeg stderr: %s", result.stderr[-500:])  # Last 500 chars
         return output_path
     except FileNotFoundError:
         raise RuntimeError("ffmpeg is not installed. Install it with: brew install ffmpeg (macOS) or apt install ffmpeg (Linux)")
@@ -268,6 +270,7 @@ def embed_cover_art_aiff(aiff_path: str, image_path: str) -> bool:
                 "-map", "0:a",
                 "-map", "1",
                 "-c", "copy",
+                "-map_metadata", "0:a",  # Preserve metadata from audio stream only
                 "-id3v2_version", "3",
                 "-metadata:s:v", "title=Album cover",
                 "-metadata:s:v", "comment=Cover (front)",
@@ -308,6 +311,7 @@ def embed_cover_art_wav(wav_path: str, image_path: str) -> bool:
                 "-map", "0:a",
                 "-map", "1",
                 "-c", "copy",
+                "-map_metadata", "0",  # Preserve metadata from input
                 "-id3v2_version", "3",
                 "-metadata:s:v", "title=Album cover",
                 "-metadata:s:v", "comment=Cover (front)",
@@ -365,14 +369,16 @@ def transcode_album(
         transcode_audio(str(wav_file), str(output_path), audio_format,
                        metadata, flac_compression_level)
 
-        # Embed cover art if available (all formats support embedded cover art)
+        # Embed cover art if available (FLAC only - AIFF/WAV embedding loses metadata)
         if cover_art_path and Path(cover_art_path).exists():
             if audio_format == "flac":
                 embed_cover_art_flac(str(output_path), cover_art_path)
-            elif audio_format == "aiff":
-                embed_cover_art_aiff(str(output_path), cover_art_path)
-            elif audio_format == "wav":
-                embed_cover_art_wav(str(output_path), cover_art_path)
+            elif audio_format in ("aiff", "wav"):
+                logger.debug("Skipping cover art embedding for %s (preserves file metadata)", audio_format)
+            # Note: Skipping cover art embedding for AIFF/WAV because ffmpeg's -c copy
+            # with cover art strips all metadata except title. Using metadata preservation
+            # is not reliable for these formats.
+            # TODO: Find alternative method to embed cover art in AIFF/WAV without losing metadata
 
         output_files.append(str(output_path))
 

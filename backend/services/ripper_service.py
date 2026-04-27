@@ -536,21 +536,29 @@ def _build_track_metadata(release: Optional[dict]) -> list[dict]:
     and handle edge cases where MusicBrainz returns empty strings.
     """
     if not release or not release.get("tracks"):
+        logger.warning("_build_track_metadata: No release or no tracks in release")
         return []
 
-    album_artist = release.get("artist", "Unknown Artist")
-    album = release.get("album", "Unknown Album")
-    year = release.get("year", "")
+    # Extract with proper fallback for both None and empty strings
+    album_artist = release.get("artist", "Unknown Artist") or "Unknown Artist"
+    album = release.get("album", "Unknown Album") or "Unknown Album"
+    year = release.get("year", "") or ""
     total = len(release["tracks"])
 
     # Include disc information for multi-disc releases
-    disc_number = release.get("disc_number", 1)
-    total_discs = release.get("total_discs", 1)
+    disc_number = release.get("disc_number", 1) or 1
+    total_discs = release.get("total_discs", 1) or 1
+
+    # Validate that we have the required fields
+    if not album_artist or album_artist == "Unknown Artist":
+        logger.warning("_build_track_metadata: album_artist is missing or Unknown Artist")
+    if not album or album == "Unknown Album":
+        logger.warning("_build_track_metadata: album is missing or Unknown Album")
 
     metadata_list = []
     for track in release["tracks"]:
         # Get track artist with fallback logic
-        track_artist = track.get("artist", "")
+        track_artist = track.get("artist", "") or ""
 
         # Handle missing or empty track artist
         if not track_artist or track_artist.strip() == "":
@@ -564,12 +572,18 @@ def _build_track_metadata(release: Optional[dict]) -> list[dict]:
         if not album or album.strip() == "":
             album = "Unknown Album"
 
+        # Get track title with fallback
+        track_title = track.get("title", "") or "Unknown"
+        if not track_title or track_title.strip() == "":
+            track_title = f"Track {track.get('number', 1):02d}"
+            logger.warning("_build_track_metadata: Track %d has no title, using generic title", track.get('number', 1))
+
         # Build track metadata with data completion
         metadata_list.append({
             "artist": track_artist,
             "album_artist": album_artist,
             "album": album,
-            "title": track.get("title", "Unknown"),
+            "title": track_title,
             "number": track.get("number", 0),
             "track": f"{track.get('number', 0)}/{total}",
             "disc": int(disc_number) if disc_number else 1,  # Ensure integer type
