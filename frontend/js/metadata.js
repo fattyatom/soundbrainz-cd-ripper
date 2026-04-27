@@ -127,8 +127,26 @@ const MetadataView = {
             el.classList.toggle("selected", i === index);
         });
 
-        // Update the "Select All" checkbox state for the newly selected release
-        this.updateSelectAllCheckboxState(index);
+        // Check all tracks in the selected release
+        const selectedCheckboxes = document.querySelectorAll(`.track-checkbox[data-release-index="${index}"]`);
+        selectedCheckboxes.forEach(cb => {
+            cb.checked = true;
+        });
+
+        // Uncheck all tracks in other releases
+        document.querySelectorAll(".release-card").forEach((el, i) => {
+            if (i !== index) {
+                const otherCheckboxes = document.querySelectorAll(`.track-checkbox[data-release-index="${i}"]`);
+                otherCheckboxes.forEach(cb => {
+                    cb.checked = false;
+                });
+            }
+        });
+
+        // Update all "Select All" checkboxes
+        document.querySelectorAll(".release-card").forEach((el, i) => {
+            this.updateSelectAllCheckboxState(i);
+        });
     },
 
     onRip() {
