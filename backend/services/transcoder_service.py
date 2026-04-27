@@ -8,7 +8,8 @@ logger = logging.getLogger(__name__)
 
 def transcode_audio(input_path: str, output_path: str,
                    audio_format: str, metadata: Optional[dict] = None,
-                   flac_compression_level: int = 0) -> str:
+                   flac_compression_level: int = 0,
+                   cover_art_path: Optional[str] = None) -> str:
     """Transcode WAV to target format with quality settings.
 
     Args:
@@ -17,6 +18,7 @@ def transcode_audio(input_path: str, output_path: str,
         audio_format: Target format ('flac', 'aiff', 'wav')
         metadata: Optional metadata dict
         flac_compression_level: Compression level for FLAC (0-12)
+        cover_art_path: Optional path to cover art image to embed
 
     Returns:
         Path to the output file.
@@ -26,28 +28,45 @@ def transcode_audio(input_path: str, output_path: str,
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
     if audio_format == "flac":
-        return _transcode_to_flac(input_path, output_path, metadata, flac_compression_level)
+        return _transcode_to_flac(input_path, output_path, metadata, flac_compression_level, cover_art_path)
     elif audio_format == "aiff":
-        return _transcode_to_aiff(input_path, output_path, metadata)
+        return _transcode_to_aiff(input_path, output_path, metadata, cover_art_path)
     elif audio_format == "wav":
-        return _transcode_to_wav(input_path, output_path, metadata)
+        return _transcode_to_wav(input_path, output_path, metadata, cover_art_path)
     else:
         raise ValueError(f"Unsupported format: {audio_format}")
 
 
 def _transcode_to_flac(input_path: str, output_path: str,
-                      metadata: Optional[dict], compression_level: int) -> str:
+                      metadata: Optional[dict], compression_level: int,
+                      cover_art_path: Optional[str] = None) -> str:
     """Transcode to FLAC with configurable compression and optimized parameters for dynamic content."""
     cmd = [
         "ffmpeg", "-y",
         "-i", input_path,
+    ]
+
+    # Add cover art input if provided
+    if cover_art_path and Path(cover_art_path).exists():
+        cmd.extend(["-i", cover_art_path])
+
+    cmd.extend([
         "-bufsize", "2M",  # Larger buffer for dynamic content
         "-ar", "44100",    # Explicit sample rate
         "-ac", "2",        # Explicit channels (stereo)
         "-q:a", "0",       # Highest quality
         "-c:a", "flac",
         "-compression_level", str(compression_level),
-    ]
+        "-map", "0:a",     # Always map audio from first input
+    ])
+
+    # Add cover art mapping if provided
+    if cover_art_path and Path(cover_art_path).exists():
+        cmd.extend([
+            "-map", "1:v",  # Map video (cover art) from second input
+            "-disposition:v", "attached_pic",
+            "-metadata:s:v", "comment=Cover (front)",
+        ])
 
     # Add metadata tags
     if metadata:
@@ -85,15 +104,33 @@ def _transcode_to_flac(input_path: str, output_path: str,
         raise RuntimeError(f"Timed out transcoding {input_path}")
 
 
-def _transcode_to_aiff(input_path: str, output_path: str, metadata: Optional[dict]) -> str:
+def _transcode_to_aiff(input_path: str, output_path: str, metadata: Optional[dict],
+                      cover_art_path: Optional[str] = None) -> str:
     """Transcode to AIFF (uncompressed, professional standard)."""
     cmd = [
         "ffmpeg", "-y",
         "-i", input_path,
+    ]
+
+    # Add cover art input if provided
+    if cover_art_path and Path(cover_art_path).exists():
+        cmd.extend(["-i", cover_art_path])
+
+    cmd.extend([
         "-c:a", "pcm_s16be",  # AIFF uses big-endian PCM
         "-ar", "44100",  # CD quality sample rate
         "-ac", "2",  # Stereo
-    ]
+        "-map", "0:a",  # Always map audio from first input
+    ])
+
+    # Add cover art mapping if provided
+    if cover_art_path and Path(cover_art_path).exists():
+        cmd.extend([
+            "-map", "1:v",  # Map video (cover art) from second input
+            "-disposition:v", "attached_pic",
+            "-metadata:s:v", "title=Album cover",
+            "-metadata:s:v", "comment=Cover (front)",
+        ])
 
     # Add metadata tags (only if they have actual values)
     if metadata:
@@ -146,15 +183,33 @@ def _transcode_to_aiff(input_path: str, output_path: str, metadata: Optional[dic
         raise RuntimeError(f"Timed out transcoding {input_path}")
 
 
-def _transcode_to_wav(input_path: str, output_path: str, metadata: Optional[dict]) -> str:
+def _transcode_to_wav(input_path: str, output_path: str, metadata: Optional[dict],
+                     cover_art_path: Optional[str] = None) -> str:
     """Transcode to WAV (uncompressed, universal compatibility)."""
     cmd = [
         "ffmpeg", "-y",
         "-i", input_path,
+    ]
+
+    # Add cover art input if provided
+    if cover_art_path and Path(cover_art_path).exists():
+        cmd.extend(["-i", cover_art_path])
+
+    cmd.extend([
         "-c:a", "pcm_s16le",  # WAV uses little-endian PCM
         "-ar", "44100",  # CD quality sample rate
         "-ac", "2",  # Stereo
-    ]
+        "-map", "0:a",  # Always map audio from first input
+    ])
+
+    # Add cover art mapping if provided
+    if cover_art_path and Path(cover_art_path).exists():
+        cmd.extend([
+            "-map", "1:v",  # Map video (cover art) from second input
+            "-disposition:v", "attached_pic",
+            "-metadata:s:v", "title=Album cover",
+            "-metadata:s:v", "comment=Cover (front)",
+        ])
 
     # Add metadata tags (WAV has limited metadata support, but we can try)
     if metadata:
@@ -364,21 +419,11 @@ def transcode_album(
         metadata = track_metadata_list[i] if i < len(track_metadata_list) else {}
         logger.debug("Transcoding track %d: %s", i, metadata)
 
-        # Use new format-aware transcoding
+        # Use new format-aware transcoding with cover art embedded during encoding
         output_path = Path(output_dir) / f"{wav_file.stem}.{audio_format}"
         transcode_audio(str(wav_file), str(output_path), audio_format,
-                       metadata, flac_compression_level)
-
-        # Embed cover art if available (FLAC only - AIFF/WAV embedding loses metadata)
-        if cover_art_path and Path(cover_art_path).exists():
-            if audio_format == "flac":
-                embed_cover_art_flac(str(output_path), cover_art_path)
-            elif audio_format in ("aiff", "wav"):
-                logger.debug("Skipping cover art embedding for %s (preserves file metadata)", audio_format)
-            # Note: Skipping cover art embedding for AIFF/WAV because ffmpeg's -c copy
-            # with cover art strips all metadata except title. Using metadata preservation
-            # is not reliable for these formats.
-            # TODO: Find alternative method to embed cover art in AIFF/WAV without losing metadata
+                       metadata, flac_compression_level,
+                       cover_art_path=cover_art_path)
 
         output_files.append(str(output_path))
 
