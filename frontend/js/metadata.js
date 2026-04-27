@@ -140,6 +140,28 @@ const MetadataView = {
             return;
         }
 
+        // DEBUG: Log the release data being sent to backend
+        console.log("DEBUG: Sending release data to backend:", {
+            mbid: release.mbid,
+            artist: release.artist,
+            album: release.album,
+            year: release.year,
+            disc_number: release.disc_number,
+            total_discs: release.total_discs,
+            track_count: release.tracks ? release.tracks.length : 0,
+            first_track: release.tracks ? release.tracks[0] : null,
+            complete_release: release
+        });
+
+        // Validate that required fields are present
+        const requiredFields = ['artist', 'album', 'tracks'];
+        const missingFields = requiredFields.filter(field => !release[field]);
+        if (missingFields.length > 0) {
+            console.error(`ERROR: Release data missing required fields: ${missingFields.join(', ')}`);
+            App.showToast(`Missing metadata fields: ${missingFields.join(', ')}`, "error");
+            return;
+        }
+
         RipView.startRip(this._drive.device, release, selectedTracks);
     },
 

@@ -99,21 +99,37 @@ def _transcode_to_aiff(input_path: str, output_path: str, metadata: Optional[dic
     cmd.extend(["-write_id3v2", "1"])  # Enable ID3v2 tags
     cmd.extend(["-id3v2_version", "3"])  # Use ID3v2.3 (most compatible)
 
-    # Add metadata tags
+    # Add metadata tags (only if they have actual values)
     if metadata:
-        cmd.extend(["-metadata", f"title={metadata.get('title', '')}"])
-        cmd.extend(["-metadata", f"artist={metadata.get('artist', '')}"])
-        cmd.extend(["-metadata", f"album={metadata.get('album', '')}"])
-        cmd.extend(["-metadata", f"album_artist={metadata.get('album_artist', '')}"])
-        cmd.extend(["-metadata", f"track={metadata.get('track', '')}"])
-        cmd.extend(["-metadata", f"date={metadata.get('date', '')}"])
-        cmd.extend(["-metadata", f"genre={metadata.get('genre', '')}"])
+        # Only add metadata fields that have non-empty values
+        # ffmpeg ignores empty metadata values like "-metadata artist="
+        if metadata.get('title'):
+            cmd.extend(["-metadata", f"title={metadata.get('title')}"])
+        if metadata.get('artist'):
+            cmd.extend(["-metadata", f"artist={metadata.get('artist')}"])
+        if metadata.get('album'):
+            cmd.extend(["-metadata", f"album={metadata.get('album')}"])
+        if metadata.get('album_artist'):
+            cmd.extend(["-metadata", f"album_artist={metadata.get('album_artist')}"])
+        if metadata.get('track'):
+            cmd.extend(["-metadata", f"track={metadata.get('track')}"])
+        if metadata.get('date'):
+            cmd.extend(["-metadata", f"date={metadata.get('date')}"])
+        if metadata.get('genre'):
+            cmd.extend(["-metadata", f"genre={metadata.get('genre')}"])
         # Add disc number metadata only for multi-disc releases
-        if metadata.get("total_discs", 1) > 1:
+        # Handle both string and int types for total_discs
+        total_discs = metadata.get("total_discs", 1)
+        try:
+            total_discs_int = int(total_discs) if total_discs else 1
+        except (ValueError, TypeError):
+            total_discs_int = 1
+
+        if total_discs_int > 1:
             if metadata.get("disc"):
-                cmd.extend(["-metadata", f"disc={metadata.get('disc', '1')}"])
+                cmd.extend(["-metadata", f"disc={metadata.get('disc')}"])
             if metadata.get("total_discs"):
-                cmd.extend(["-metadata", f"disctotal={metadata.get('total_discs', '1')}"])
+                cmd.extend(["-metadata", f"disctotal={metadata.get('total_discs')}"])
 
     cmd.append(output_path)
 
@@ -146,19 +162,28 @@ def _transcode_to_wav(input_path: str, output_path: str, metadata: Optional[dict
 
     # Add metadata tags (WAV has limited metadata support, but we can try)
     if metadata:
-        cmd.extend(["-metadata", f"title={metadata.get('title', '')}"])
-        cmd.extend(["-metadata", f"artist={metadata.get('artist', '')}"])
-        cmd.extend(["-metadata", f"album={metadata.get('album', '')}"])
-        cmd.extend(["-metadata", f"album_artist={metadata.get('album_artist', '')}"])
-        cmd.extend(["-metadata", f"track={metadata.get('track', '')}"])
-        cmd.extend(["-metadata", f"date={metadata.get('date', '')}"])
-        cmd.extend(["-metadata", f"genre={metadata.get('genre', '')}"])
+        # Only add metadata fields that have non-empty values
+        # ffmpeg ignores empty metadata values like "-metadata artist="
+        if metadata.get('title'):
+            cmd.extend(["-metadata", f"title={metadata.get('title')}"])
+        if metadata.get('artist'):
+            cmd.extend(["-metadata", f"artist={metadata.get('artist')}"])
+        if metadata.get('album'):
+            cmd.extend(["-metadata", f"album={metadata.get('album')}"])
+        if metadata.get('album_artist'):
+            cmd.extend(["-metadata", f"album_artist={metadata.get('album_artist')}"])
+        if metadata.get('track'):
+            cmd.extend(["-metadata", f"track={metadata.get('track')}"])
+        if metadata.get('date'):
+            cmd.extend(["-metadata", f"date={metadata.get('date')}"])
+        if metadata.get('genre'):
+            cmd.extend(["-metadata", f"genre={metadata.get('genre')}"])
         # Add disc number metadata only for multi-disc releases
         if metadata.get("total_discs", 1) > 1:
             if metadata.get("disc"):
-                cmd.extend(["-metadata", f"disc={metadata.get('disc', '1')}"])
+                cmd.extend(["-metadata", f"disc={metadata.get('disc')}"])
             if metadata.get("total_discs"):
-                cmd.extend(["-metadata", f"disctotal={metadata.get('total_discs', '1')}"])
+                cmd.extend(["-metadata", f"disctotal={metadata.get('total_discs')}"])
 
     cmd.append(output_path)
 

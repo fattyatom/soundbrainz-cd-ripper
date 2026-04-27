@@ -409,6 +409,29 @@ def _rip_worker(device: str, release: Optional[dict], output_dir: Optional[str],
 
         track_metadata_list = _build_track_metadata(release)
 
+        # DEBUG: Log detailed metadata information
+        if track_metadata_list:
+            logger.info("Built metadata for %d tracks", len(track_metadata_list))
+            first_metadata = track_metadata_list[0]
+            logger.info("First track metadata structure:")
+            logger.info("  Artist: %s", first_metadata.get("artist", "MISSING"))
+            logger.info("  Album Artist: %s", first_metadata.get("album_artist", "MISSING"))
+            logger.info("  Album: %s", first_metadata.get("album", "MISSING"))
+            logger.info("  Title: %s", first_metadata.get("title", "MISSING"))
+            logger.info("  Track: %s", first_metadata.get("track", "MISSING"))
+            logger.info("  Disc: %s", first_metadata.get("disc", "MISSING"))
+            logger.info("  Total Discs: %s", first_metadata.get("total_discs", "MISSING"))
+            logger.info("  Date: %s", first_metadata.get("date", "MISSING"))
+
+            # Check for missing required fields
+            required_fields = ['artist', 'album_artist', 'album', 'title']
+            missing_fields = [field for field in required_fields if not first_metadata.get(field)]
+            if missing_fields:
+                logger.warning("First track metadata missing required fields: %s", missing_fields)
+                logger.warning("Complete first metadata: %s", first_metadata)
+        else:
+            logger.warning("No metadata was built - release data was likely None or incomplete")
+
         # Transcode all formats (FLAC, AIFF, WAV) to ensure metadata and cover art are embedded
         logger.info("Transcoding %d tracks with metadata: %s", len(track_metadata_list),
                    track_metadata_list[0] if track_metadata_list else "No metadata")
@@ -507,7 +530,11 @@ def _update_transcode_progress(track: int, total_tracks: int, percent: int) -> N
 
 
 def _build_track_metadata(release: Optional[dict]) -> list[dict]:
-    """Build per-track metadata dicts from a MusicBrainz release."""
+    """Build per-track metadata dicts from a MusicBrainz release.
+
+    Enhanced to fill in missing data from available MusicBrainz fields
+    and handle edge cases where MusicBrainz returns empty strings.
+    """
     if not release or not release.get("tracks"):
         return []
 
@@ -522,15 +549,31 @@ def _build_track_metadata(release: Optional[dict]) -> list[dict]:
 
     metadata_list = []
     for track in release["tracks"]:
+        # Get track artist with fallback logic
+        track_artist = track.get("artist", "")
+
+        # Handle missing or empty track artist
+        if not track_artist or track_artist.strip() == "":
+            track_artist = album_artist
+
+        # Handle missing or empty album artist
+        if not album_artist or album_artist.strip() == "":
+            album_artist = track_artist if track_artist else "Unknown Artist"
+
+        # Handle missing or empty album name
+        if not album or album.strip() == "":
+            album = "Unknown Album"
+
+        # Build track metadata with data completion
         metadata_list.append({
-            "artist": track.get("artist", album_artist),
+            "artist": track_artist,
             "album_artist": album_artist,
             "album": album,
             "title": track.get("title", "Unknown"),
             "number": track.get("number", 0),
             "track": f"{track.get('number', 0)}/{total}",
-            "disc": disc_number,
-            "total_discs": total_discs,
+            "disc": int(disc_number) if disc_number else 1,  # Ensure integer type
+            "total_discs": int(total_discs) if total_discs else 1,  # Ensure integer type
             "date": year,
             "genre": "",
         })

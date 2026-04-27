@@ -17,6 +17,29 @@ def post_rip():
         return jsonify({"error": "No device specified"}), 400
 
     release = data.get("release")  # Optional MusicBrainz metadata
+
+    # DEBUG: Log the received release data structure
+    import logging
+    logger = logging.getLogger(__name__)
+    if release:
+        logger.info("Received release data from frontend:")
+        logger.info(f"  MBID: {release.get('mbid', 'MISSING')}")
+        logger.info(f"  Artist: {release.get('artist', 'MISSING')}")
+        logger.info(f"  Album: {release.get('album', 'MISSING')}")
+        logger.info(f"  Year: {release.get('year', 'MISSING')}")
+        logger.info(f"  Disc number: {release.get('disc_number', 'MISSING')}")
+        logger.info(f"  Total discs: {release.get('total_discs', 'MISSING')}")
+        logger.info(f"  Tracks: {len(release.get('tracks', []))} tracks")
+
+        # Check for missing required fields
+        required_fields = ['artist', 'album', 'tracks']
+        missing_fields = [field for field in required_fields if not release.get(field)]
+        if missing_fields:
+            logger.warning(f"Release data missing required fields: {missing_fields}")
+            logger.warning(f"Complete release data: {release}")
+    else:
+        logger.info("No release data received - will rip without metadata")
+
     output_dir = data.get("output_dir")
     selected_tracks = data.get("selectedTracks")  # Optional list of track numbers to rip
 
