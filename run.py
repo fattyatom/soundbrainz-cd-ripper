@@ -7,4 +7,4 @@ app = create_app()
 
 if __name__ == "__main__":
     # Enable threading to prevent blocking during background rips
-    app.run(debug=True, port=5000, threaded=True)
+    app.run(debug=True, port=5000, threaded=True, host="0.0.0.0")
